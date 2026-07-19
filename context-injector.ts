@@ -1,23 +1,35 @@
 // context-injector.ts - Inject a compact registry index into the session context.
 //
 // Implements REQ-C-001..006 of openspec/specs/context-injection/spec.md.
-// The injector runs on `session_start` (after the registry loader) and
-// appends a Markdown block to the system context. The block lists every
-// server and tool, but NOT the full schemas — the model is told to read
-// `registry/<server>/tools/<tool>.json` on demand via Pi's native `read`
-// tool when it needs the full input schema before calling CallMcpTool.
+// The injector runs on the `context` event (fired before every provider
+// request) and prepends a Markdown block to the message array. The block
+// lists every server and tool.
 //
-// Token budget: default 4000 tokens, estimated as charCount / 4. When
-// the registry exceeds the budget, the injector walks a truncation
-// ladder (full descriptions → 40-char descriptions → tool keys only →
-// server names + counts only) and appends a "> (truncated — ...)" note.
+// Truncation ladder (most detail first; first level that fits the token
+// budget wins):
+//   1. renderWithSchemas  — full inputSchema JSON per tool. The model can
+//                           call CallMcpTool directly with no extra round-trip.
+//   2. renderFull(80)     — tool names + descriptions (80 chars). Model must
+//                           read the schema file before calling.
+//   3. renderFull(40)     — same, 40-char descriptions.
+//   4. renderKeysOnly     — tool keys only.
+//   5. renderCountsOnly   — server names + tool counts.
+//
+// Token budget: default 4000 tokens, estimated as charCount / 4. When even
+// the most compact form exceeds the budget, append a truncation note.
+//
+// Schema file paths in the footer are ABSOLUTE (registry.root), so the
+// model's read/grep/ls tools can actually find them — a relative path would
+// resolve against the agent's cwd and miss the real registry location.
 
 import type { Registry } from "./registry/registry-types.ts";
 import type { BridgeSettings } from "./types.ts";
 
 const HEADER = "## MCP servers (via pi-mcp-bridge)";
-const FOOTER =
-  "Use Pi's read/grep/ls tools on `registry/<server>/tools/<tool>.json` to see the full input schema before calling CallMcpTool.";
+const FOOTER_WITH_SCHEMAS =
+  "Full input schemas are included above. Call CallMcpTool / FetchMcpResource directly with the arguments shown.";
+const FOOTER_READ_FILES = (root: string) =>
+  `Use Pi's read/grep/ls tools on \`${root}/<server>/tools/<tool>.json\` to see the full input schema before calling CallMcpTool.`;
 
 const DEFAULT_BUDGET_TOKENS = 4000;
 const CHARS_PER_TOKEN = 4;
@@ -25,10 +37,12 @@ const SHORT_DESCRIPTION_CHARS = 40;
 const TINY_DESCRIPTION_CHARS = 80;
 
 export interface InjectionResult {
-  /** The Markdown block to append to the system context. */
+  /** The Markdown block to prepend to the messages. */
   block: string;
-  /** Whether the block was truncated to fit the budget. */
+  /** Whether the block was truncated to fit the budget (even counts-only exceeded it). */
   truncated: boolean;
+  /** Whether full per-tool inputSchemas were included (level 1 was used). */
+  schemasIncluded: boolean;
   /** Estimated token count of the final block. */
   estimatedTokens: number;
 }
@@ -40,41 +54,73 @@ export function buildContextBlock(
 ): InjectionResult {
   const budget = settings.contextBudgetTokens ?? DEFAULT_BUDGET_TOKENS;
   const maxChars = budget * CHARS_PER_TOKEN;
+  const root = registry.root;
 
   if (registry.servers.size === 0) {
     const block = [
       HEADER,
       "0 servers configured. Run `/mcp-bridge add <server-name> -- <command>` or hand-edit",
-      "`registry/<server>/meta.json` to add an MCP server.",
+      `\`${root}/<server>/meta.json\` to add an MCP server.`,
     ].join("\n");
-    return { block, truncated: false, estimatedTokens: estimateTokens(block) };
+    return { block, truncated: false, schemasIncluded: false, estimatedTokens: estimateTokens(block) };
   }
 
   // Try each truncation level in turn until the budget fits.
-  const levels: Array<(reg: Registry) => string> = [
-    reg => renderFull(reg, TINY_DESCRIPTION_CHARS),
-    reg => renderFull(reg, SHORT_DESCRIPTION_CHARS),
-    reg => renderKeysOnly(reg),
-    reg => renderCountsOnly(reg),
+  // Each level returns { block, schemasIncluded }.
+  const levels: Array<{ render: (reg: Registry) => string; schemasIncluded: boolean }> = [
+    { render: reg => renderWithSchemas(reg), schemasIncluded: true },
+    { render: reg => renderFull(reg, TINY_DESCRIPTION_CHARS, root), schemasIncluded: false },
+    { render: reg => renderFull(reg, SHORT_DESCRIPTION_CHARS, root), schemasIncluded: false },
+    { render: reg => renderKeysOnly(reg, root), schemasIncluded: false },
+    { render: reg => renderCountsOnly(reg, root), schemasIncluded: false },
   ];
 
-  for (const render of levels) {
-    const block = render(registry);
+  for (const level of levels) {
+    const block = level.render(registry);
     if (estimateTokens(block) <= maxChars) {
-      return { block, truncated: false, estimatedTokens: estimateTokens(block) };
+      return { block, truncated: false, schemasIncluded: level.schemasIncluded, estimatedTokens: estimateTokens(block) };
     }
   }
 
   // Even the most compact form exceeds the budget. Emit it with a truncation note.
-  const compact = renderCountsOnly(registry);
-  const note = "> (truncated — read `registry/<server>/tools/` for the full list)";
+  const compact = renderCountsOnly(registry, root);
+  const note = "> (truncated — read `${root}/<server>/tools/` for the full list)";
   const block = `${compact}\n${note}`;
-  return { block, truncated: true, estimatedTokens: estimateTokens(block) };
+  return { block, truncated: true, schemasIncluded: false, estimatedTokens: estimateTokens(block) };
 }
 
-function renderFull(registry: Registry, maxDescChars: number): string {
+/** Render every tool with its full inputSchema as compact JSON. */
+function renderWithSchemas(registry: Registry): string {
   const totalTools = [...registry.servers.values()].reduce((sum, s) => sum + s.tools.size, 0);
-  const summary = `${registry.servers.size} servers, ${totalTools} tools — use CallMcpTool / FetchMcpResource to invoke; read registry/<server>/tools/<tool>.json for full schemas.`;
+  const summary = `${registry.servers.size} servers, ${totalTools} tools — full input schemas included; call CallMcpTool / FetchMcpResource directly.`;
+
+  const lines: string[] = [HEADER, summary];
+
+  for (const server of registry.servers.values()) {
+    const title = server.meta.description
+      ? `### ${server.name} — ${truncate(server.meta.description, TINY_DESCRIPTION_CHARS)}`
+      : `### ${server.name}`;
+    lines.push(title);
+
+    if (server.tools.size > 0) {
+      for (const [key, def] of server.tools) {
+        const desc = def.description ? truncate(def.description, TINY_DESCRIPTION_CHARS) : "";
+        lines.push(desc ? `- ${key}: ${desc}` : `- ${key}`);
+        const schemaJson = compactSchema(def.inputSchema);
+        lines.push(`    args: ${schemaJson}`);
+      }
+    } else {
+      lines.push("- (no tools registered)");
+    }
+  }
+
+  lines.push(FOOTER_WITH_SCHEMAS);
+  return lines.join("\n");
+}
+
+function renderFull(registry: Registry, maxDescChars: number, root: string): string {
+  const totalTools = [...registry.servers.values()].reduce((sum, s) => sum + s.tools.size, 0);
+  const summary = `${registry.servers.size} servers, ${totalTools} tools — use CallMcpTool / FetchMcpResource to invoke; read \`${root}/<server>/tools/<tool>.json\` for full schemas.`;
 
   const lines: string[] = [HEADER, summary];
 
@@ -94,13 +140,13 @@ function renderFull(registry: Registry, maxDescChars: number): string {
     }
   }
 
-  lines.push(FOOTER);
+  lines.push(FOOTER_READ_FILES(root));
   return lines.join("\n");
 }
 
-function renderKeysOnly(registry: Registry): string {
+function renderKeysOnly(registry: Registry, root: string): string {
   const totalTools = [...registry.servers.values()].reduce((sum, s) => sum + s.tools.size, 0);
-  const summary = `${registry.servers.size} servers, ${totalTools} tools — use CallMcpTool / FetchMcpResource to invoke; read registry/<server>/tools/<tool>.json for full schemas.`;
+  const summary = `${registry.servers.size} servers, ${totalTools} tools — use CallMcpTool / FetchMcpResource to invoke; read \`${root}/<server>/tools/<tool>.json\` for full schemas.`;
 
   const lines: string[] = [HEADER, summary];
 
@@ -113,13 +159,13 @@ function renderKeysOnly(registry: Registry): string {
     }
   }
 
-  lines.push(FOOTER);
+  lines.push(FOOTER_READ_FILES(root));
   return lines.join("\n");
 }
 
-function renderCountsOnly(registry: Registry): string {
+function renderCountsOnly(registry: Registry, root: string): string {
   const totalTools = [...registry.servers.values()].reduce((sum, s) => sum + s.tools.size, 0);
-  const summary = `${registry.servers.size} servers, ${totalTools} tools — use CallMcpTool / FetchMcpResource to invoke; read registry/<server>/tools/<tool>.json for full schemas.`;
+  const summary = `${registry.servers.size} servers, ${totalTools} tools — use CallMcpTool / FetchMcpResource to invoke; read \`${root}/<server>/tools/<tool>.json\` for full schemas.`;
 
   const lines: string[] = [HEADER, summary];
 
@@ -127,8 +173,18 @@ function renderCountsOnly(registry: Registry): string {
     lines.push(`- ${server.name} (${server.tools.size} tools)`);
   }
 
-  lines.push(FOOTER);
+  lines.push(FOOTER_READ_FILES(root));
   return lines.join("\n");
+}
+
+/** Compact a JSON Schema into a single-line JSON string (no whitespace). */
+function compactSchema(schema: unknown): string {
+  if (schema === null || schema === undefined) return "{}";
+  try {
+    return JSON.stringify(schema);
+  } catch {
+    return "{}";
+  }
 }
 
 function truncate(text: string, maxChars: number): string {

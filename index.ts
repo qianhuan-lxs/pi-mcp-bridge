@@ -186,6 +186,8 @@ export default function mcpBridge(pi: ExtensionAPI) {
       block = result.block;
       injectedBlock = block;
       if (result.truncated) logger.warn("context injection was truncated to fit the budget");
+      else if (result.schemasIncluded) logger.info("context injection: full schemas included");
+      else logger.info("context injection: descriptions only (model will read schema files on demand)");
     } catch (error) {
       logger.error("context injection failed", error instanceof Error ? error : undefined);
       return;

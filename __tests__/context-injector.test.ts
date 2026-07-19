@@ -70,4 +70,77 @@ describe("buildContextBlock", () => {
     expect(result.truncated).toBe(false);
     expect(result.estimatedTokens).toBeGreaterThan(0);
   });
+
+  it("includes full inputSchemas when the registry fits the budget", () => {
+    const reg = makeRegistry([
+      {
+        name: "fs",
+        tools: [
+          {
+            name: "read_file",
+            description: "Read a file.",
+            // The test helper sets inputSchema to { type: "object" } by default;
+            // override it here with a richer schema to assert it's rendered.
+          },
+        ],
+      },
+    ]);
+    // Override the default { type: "object" } with a real-shaped schema.
+    const tool = reg.servers.get("fs")!.tools.get("read_file")!;
+    tool.inputSchema = {
+      type: "object",
+      properties: { path: { type: "string", description: "Path to read." } },
+      required: ["path"],
+    };
+    const result = buildContextBlock(reg, { contextBudgetTokens: 4000 });
+    expect(result.schemasIncluded).toBe(true);
+    expect(result.block).toContain("args:");
+    // Compact JSON of the schema must appear inline.
+    expect(result.block).toContain('"path"');
+    expect(result.block).toContain('"required"');
+    // The "read the schema file" footer must NOT appear when schemas are included.
+    expect(result.block).not.toContain("tools/<tool>.json");
+    expect(result.block).toContain("Full input schemas are included above");
+  });
+
+  it("falls back to descriptions-only when schemas would exceed the budget", () => {
+    const reg = makeRegistry([
+      {
+        name: "bigserver",
+        tools: Array.from({ length: 50 }, (_, i) => ({
+          name: `tool_${i}`,
+          description: `Tool number ${i}.`,
+        })),
+      },
+    ]);
+    // Give each tool a fat schema so renderWithSchemas overflows, but
+    // renderFull(descriptions) still fits a moderate budget.
+    for (const t of reg.servers.get("bigserver")!.tools.values()) {
+      t.inputSchema = {
+        type: "object",
+        properties: {
+          a: { type: "string", description: "x".repeat(20) },
+          b: { type: "string", description: "y".repeat(20) },
+          c: { type: "number" },
+        },
+      };
+    }
+    const result = buildContextBlock(reg, { contextBudgetTokens: 200 });
+    expect(result.schemasIncluded).toBe(false);
+    // The absolute-root "read the file" footer must appear.
+    expect(result.block).toContain(reg.root);
+    expect(result.block).toContain("tools/<tool>.json");
+  });
+
+  it("uses the absolute registry.root in the footer path", () => {
+    const reg = makeRegistry([
+      { name: "fs", tools: [{ name: "read_file", description: "Read a file." }] },
+    ]);
+    // Force fallback to descriptions-only by giving a schema too big for a tiny budget
+    // but small enough that renderFull fits.
+    const tool = reg.servers.get("fs")!.tools.get("read_file")!;
+    tool.inputSchema = { type: "object", properties: { x: { type: "string", description: "z".repeat(200) } } };
+    const result = buildContextBlock(reg, { contextBudgetTokens: 30 });
+    expect(result.block).toContain(reg.root);
+  });
 });

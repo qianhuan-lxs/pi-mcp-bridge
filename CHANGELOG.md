@@ -4,6 +4,30 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] — 2026-07-19
+
+### Fixed — context block path + full-schema injection (review follow-up)
+
+Review of a real `/mcp-bridge sync context7` session exposed two issues in the context-injection design:
+
+- **The schema-file path in the context block was relative (`registry/<server>/tools/<tool>.json`), so the model's `read` resolved it against the agent cwd and got ENOENT.** The actual files live at `getRegistryRoot()` = `~/.pi/agent/mcp-registry/`. The model could never read a schema file and only recovered because the MCP server happened to embed the schema in its validation error. Fix: the footer now uses the absolute `registry.root` (e.g. `~/.pi/agent/mcp-registry/<server>/tools/<tool>.json`), so `read`/`grep`/`ls` actually find the file.
+
+- **The "read the schema file before calling" pattern doubled round-trips and the model often skipped it** (calling with empty params, failing, then reading the schema from the error). Fix: added a new top truncation level `renderWithSchemas` that includes each tool's full `inputSchema` as compact JSON inline. When the registry fits the token budget (default 4000), the model gets every schema directly in the context block and can call `CallMcpTool` correctly on the first try — no extra `read`, no failed-then-retry. When the registry is too large, the injector falls back to the existing description-only levels (which now point at the correct absolute path). `InjectionResult` gains a `schemasIncluded` boolean so callers can tell which mode was used.
+
+### Result
+
+For a small registry (e.g. just `context7` with 2 tools), the call chain becomes:
+```
+1. model reads schema from the context block (no tool call needed)
+2. CallMcpTool(resolve-library-id, {query, libraryName})  → succeeds first try
+3. CallMcpTool(query-docs, {libraryId, query})            → succeeds first try
+```
+2 calls, 0 failures (was 4 calls, 2 failures in v0.2.2).
+
+### Tests
+
+- 3 new tests covering the `renderWithSchemas` level, the fallback-to-descriptions path, and the absolute-path footer. Total suite: **55 tests across 6 files, all green**. Typecheck: 0 errors.
+
 ## [0.2.2] — 2026-07-19
 
 ### Fixed — context injection actually works now (critical)
