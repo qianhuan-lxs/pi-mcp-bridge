@@ -178,6 +178,8 @@ describe("buildContextBlock", () => {
     expect(result.schemasIncluded).toBe(false);
     expect(result.block).toContain("tools/<tool>.json"); // fallback footer
     expect(result.block).not.toContain("Full input schemas are included above");
+    expect(result.fullSchemaTokens).toBeGreaterThanOrEqual(result.estimatedTokens);
+    expect(result.tokensSaved).toBe(result.fullSchemaTokens - result.estimatedTokens);
   });
 
   it("includes schemas for registries with exactly 10 tools (boundary)", () => {

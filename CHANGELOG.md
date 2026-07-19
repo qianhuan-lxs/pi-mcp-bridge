@@ -4,6 +4,15 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] — 2026-07-19
+
+### Added — show tokens saved vs full-schema baseline
+
+Footer and `/mcp-bridge status` now report how much context the compact injection saved compared to always inlining every tool's full `inputSchema`:
+
+- Footer: `… · ~1.2k/4k tok (30%, names) · saved ~8.4k (87%)`
+- Status: `Saved vs full schemas: ~8400 tokens (87%) — baseline 9600 → injected 1200`
+
 ## [0.5.5] — 2026-07-19
 
 ### Added — MCP context occupancy in footer + status

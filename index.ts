@@ -32,6 +32,7 @@ import {
   renderListTable,
   renderStatusLine,
   formatStatusLine,
+  updateContextStats,
   STATUS_KEY,
 } from "./status-bar.ts";
 import {
@@ -211,15 +212,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
     try {
       const result = buildContextBlock(state.registry, state.settings);
       block = result.block;
-      const budget = state.settings.contextBudgetTokens ?? 4000;
-      state.contextStats = {
-        estimatedTokens: result.estimatedTokens,
-        budgetTokens: budget,
-        percentOfBudget: budget > 0 ? Math.round((result.estimatedTokens / budget) * 100) : 0,
-        schemasIncluded: result.schemasIncluded,
-        truncated: result.truncated,
-        charCount: block.length,
-      };
+      const stats = updateContextStats(state);
       if (state.ui?.setStatus) {
         state.ui.setStatus(STATUS_KEY, formatStatusLine(state, state.ui.theme as { fg: (n: string, t: string) => string }));
       }
@@ -227,7 +220,10 @@ export default function mcpBridge(pi: ExtensionAPI) {
       else if (result.schemasIncluded) logger.info("context injection: full schemas included");
       else logger.info("context injection: descriptions only (model will read schema files on demand)");
       logger.info(
-        `context injection size: ~${result.estimatedTokens}/${budget} tokens (${state.contextStats.percentOfBudget}%)`,
+        `context injection size: ~${stats.estimatedTokens}/${stats.budgetTokens} tokens (${stats.percentOfBudget}%)` +
+          (stats.tokensSaved > 0
+            ? `; saved ~${stats.tokensSaved} vs full schemas (${stats.percentSaved}%)`
+            : ""),
       );
     } catch (error) {
       logger.error("context injection failed", error instanceof Error ? error : undefined);

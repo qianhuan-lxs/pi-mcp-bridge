@@ -24,6 +24,12 @@ export interface ContextInjectionStats {
   budgetTokens: number;
   /** `round(estimated / budget * 100)`. */
   percentOfBudget: number;
+  /** Tokens if every tool's full inputSchema were inlined (baseline). */
+  fullSchemaTokens: number;
+  /** Tokens avoided vs full-schema baseline (`fullSchemaTokens - estimated`). */
+  tokensSaved: number;
+  /** `round(tokensSaved / fullSchemaTokens * 100)` when baseline > 0. */
+  percentSaved: number;
   /** Whether full inputSchemas were inlined. */
   schemasIncluded: boolean;
   /** Whether even the compact form exceeded the budget. */

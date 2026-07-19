@@ -60,6 +60,13 @@ export interface InjectionResult {
   schemasIncluded: boolean;
   /** Estimated token count of the final block. */
   estimatedTokens: number;
+  /**
+   * Estimated tokens if we always inlined every tool's full inputSchema
+   * (ignoring schemaInjectionToolLimit / budget). Used to report savings.
+   */
+  fullSchemaTokens: number;
+  /** `max(0, fullSchemaTokens - estimatedTokens)` — what truncation/limit saved. */
+  tokensSaved: number;
 }
 
 /** Build the compact registry index block. */
@@ -86,8 +93,36 @@ export function buildContextBlock(
         `\`${root}/<server>/meta.json\` to add an MCP server.`,
       ].join("\n"),
     );
-    return { block, truncated: false, schemasIncluded: false, estimatedTokens: estimateTokens(block) };
+    const estimatedTokens = estimateTokens(block);
+    return {
+      block,
+      truncated: false,
+      schemasIncluded: false,
+      estimatedTokens,
+      fullSchemaTokens: estimatedTokens,
+      tokensSaved: 0,
+    };
   }
+
+  // Baseline: always measure the full-schema block so we can report how much
+  // the tool-count limit + truncation ladder saved vs inlining everything.
+  const fullSchemaTokens = estimateTokens(withInjectionFooter(renderWithSchemas(registry)));
+
+  const withSavings = (
+    block: string,
+    truncated: boolean,
+    schemasIncluded: boolean,
+  ): InjectionResult => {
+    const estimatedTokens = estimateTokens(block);
+    return {
+      block,
+      truncated,
+      schemasIncluded,
+      estimatedTokens,
+      fullSchemaTokens,
+      tokensSaved: Math.max(0, fullSchemaTokens - estimatedTokens),
+    };
+  };
 
   // Try each truncation level in turn until the budget fits.
   // Each level returns { block, schemasIncluded }.
@@ -105,7 +140,7 @@ export function buildContextBlock(
     if (level.schemasIncluded && !allowSchemas) continue; // skip renderWithSchemas when over the limit
     const block = withInjectionFooter(level.render(registry));
     if (estimateTokens(block) <= maxChars) {
-      return { block, truncated: false, schemasIncluded: level.schemasIncluded, estimatedTokens: estimateTokens(block) };
+      return withSavings(block, false, level.schemasIncluded);
     }
   }
 
@@ -113,7 +148,7 @@ export function buildContextBlock(
   const compact = renderCountsOnly(registry, root);
   const note = `> (truncated — read \`${root}/<server>/tools/\` for the full list)`;
   const block = withInjectionFooter(`${compact}\n${note}`);
-  return { block, truncated: true, schemasIncluded: false, estimatedTokens: estimateTokens(block) };
+  return withSavings(block, true, false);
 }
 
 /**

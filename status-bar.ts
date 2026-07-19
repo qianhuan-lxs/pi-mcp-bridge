@@ -35,6 +35,12 @@ export function updateContextStats(state: McpBridgeState): ContextInjectionStats
     budgetTokens,
     percentOfBudget:
       budgetTokens > 0 ? Math.round((result.estimatedTokens / budgetTokens) * 100) : 0,
+    fullSchemaTokens: result.fullSchemaTokens,
+    tokensSaved: result.tokensSaved,
+    percentSaved:
+      result.fullSchemaTokens > 0
+        ? Math.round((result.tokensSaved / result.fullSchemaTokens) * 100)
+        : 0,
     schemasIncluded: result.schemasIncluded,
     truncated: result.truncated,
     charCount: result.block.length,
@@ -63,7 +69,11 @@ export function formatStatusLine(state: McpBridgeState, theme: ThemeLike): strin
   const budget = formatTokenCount(stats.budgetTokens);
   const pct = `${stats.percentOfBudget}%`;
   const mode = stats.truncated ? "trunc" : stats.schemasIncluded ? "schemas" : "names";
-  return theme.fg("dim", `${base} · ~${used}/${budget} tok (${pct}, ${mode})`);
+  const saved =
+    stats.tokensSaved > 0
+      ? ` · saved ~${formatTokenCount(stats.tokensSaved)} (${stats.percentSaved}%)`
+      : "";
+  return theme.fg("dim", `${base} · ~${used}/${budget} tok (${pct}, ${mode})${saved}`);
 }
 
 /** Refresh the footer status from the current registry. No-op without a UI. */
@@ -169,6 +179,20 @@ export function renderStatusLine(state: McpBridgeState, theme: ThemeLike): strin
         theme.fg("dim", " of budget) — ") +
         mode,
     );
+    if (stats.tokensSaved > 0) {
+      const saved = theme.fg("success", bold(theme, `~${stats.tokensSaved}`));
+      const savedPct = theme.fg("success", bold(theme, `${stats.percentSaved}%`));
+      const full = theme.fg("dim", String(stats.fullSchemaTokens));
+      lines.push(
+        theme.fg("dim", "Saved vs full schemas: ") +
+          saved +
+          theme.fg("dim", " tokens (") +
+          savedPct +
+          theme.fg("dim", `) — baseline ${full} → injected ${stats.estimatedTokens}`),
+      );
+    } else {
+      lines.push(theme.fg("dim", "Saved vs full schemas: 0 (already injecting full schemas)"));
+    }
     lines.push(
       theme.fg("dim", `  ${stats.charCount} chars · registry generation ${state.registryGeneration}`),
     );

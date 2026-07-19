@@ -102,6 +102,35 @@ describe("status-bar", () => {
     expect(line).toMatch(/schemas|names/);
   });
 
+  it("reports tokens saved vs full-schema baseline when over the inline limit", () => {
+    const tools = Array.from({ length: 12 }, (_, i) => ({ name: `t${i}` }));
+    // makeState expects tools: string[]
+    const state = makeState([{ name: "big", tools: tools.map(t => t.name) }]);
+    // Give each tool a fat schema so full-schema baseline is clearly larger.
+    const server = state.registry.servers.get("big")!;
+    for (const [key, def] of server.tools) {
+      server.tools.set(key, {
+        ...def,
+        description: `Tool ${key}`,
+        inputSchema: {
+          type: "object",
+          properties: {
+            a: { type: "string", description: "aaaaaaaaaaaaaaaaaaaaaaaa" },
+            b: { type: "number", description: "bbbbbbbbbbbbbbbbbbbbbbbb" },
+          },
+          required: ["a", "b"],
+        },
+      });
+    }
+    const stats = updateContextStats(state);
+    expect(stats.schemasIncluded).toBe(false);
+    expect(stats.fullSchemaTokens).toBeGreaterThan(stats.estimatedTokens);
+    expect(stats.tokensSaved).toBeGreaterThan(0);
+    expect(stats.percentSaved).toBeGreaterThan(0);
+    const line = formatStatusLine(state, makeTheme());
+    expect(line).toContain("saved");
+  });
+
   it("renderListTable shows an empty-registry hint", () => {
     const out = renderListTable([], makeTheme());
     expect(out).toContain("no servers in registry");
@@ -140,5 +169,6 @@ describe("status-bar", () => {
     expect(out).toContain("tools");
     expect(out).toContain("MCP context block");
     expect(out).toContain("tokens");
+    expect(out).toContain("Saved vs full schemas");
   });
 });
