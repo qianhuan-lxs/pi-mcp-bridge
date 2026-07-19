@@ -35,6 +35,9 @@ const DEFAULT_BUDGET_TOKENS = 4000;
 const CHARS_PER_TOKEN = 4;
 const SHORT_DESCRIPTION_CHARS = 40;
 const TINY_DESCRIPTION_CHARS = 80;
+/** Default tool-count limit for inline schema injection. Registries with
+ * more tools fall back to descriptions-only. */
+const DEFAULT_SCHEMA_INJECTION_TOOL_LIMIT = 30;
 
 export interface InjectionResult {
   /** The Markdown block to prepend to the messages. */
@@ -50,11 +53,18 @@ export interface InjectionResult {
 /** Build the compact registry index block. */
 export function buildContextBlock(
   registry: Registry,
-  settings: Pick<BridgeSettings, "contextBudgetTokens"> = {},
+  settings: Pick<BridgeSettings, "contextBudgetTokens" | "schemaInjectionToolLimit"> = {},
 ): InjectionResult {
   const budget = settings.contextBudgetTokens ?? DEFAULT_BUDGET_TOKENS;
   const maxChars = budget * CHARS_PER_TOKEN;
   const root = registry.root;
+  const schemaLimit = settings.schemaInjectionToolLimit ?? DEFAULT_SCHEMA_INJECTION_TOOL_LIMIT;
+  const totalToolCount = [...registry.servers.values()].reduce((sum, s) => sum + s.tools.size, 0);
+  // Hard rule: if the registry has more tools than the limit, skip the
+  // full-schema level entirely. This makes behavior predictable (no
+  // "it fit last turn but not this turn" surprises when tools are added)
+  // and avoids building a large block only to discard it.
+  const allowSchemas = schemaLimit > 0 && totalToolCount <= schemaLimit;
 
   if (registry.servers.size === 0) {
     const block = [
@@ -67,6 +77,8 @@ export function buildContextBlock(
 
   // Try each truncation level in turn until the budget fits.
   // Each level returns { block, schemasIncluded }.
+  // Level 1 (renderWithSchemas) is skipped when the registry exceeds the
+  // configured tool-count limit.
   const levels: Array<{ render: (reg: Registry) => string; schemasIncluded: boolean }> = [
     { render: reg => renderWithSchemas(reg), schemasIncluded: true },
     { render: reg => renderFull(reg, TINY_DESCRIPTION_CHARS, root), schemasIncluded: false },
@@ -76,6 +88,7 @@ export function buildContextBlock(
   ];
 
   for (const level of levels) {
+    if (level.schemasIncluded && !allowSchemas) continue; // skip renderWithSchemas when over the limit
     const block = level.render(registry);
     if (estimateTokens(block) <= maxChars) {
       return { block, truncated: false, schemasIncluded: level.schemasIncluded, estimatedTokens: estimateTokens(block) };

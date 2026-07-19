@@ -94,6 +94,14 @@ export interface BridgeSettings {
   outputGuard?: boolean | McpOutputGuardSettings;
   /** Token budget for the session-start context injection. Default 4000. */
   contextBudgetTokens?: number;
+  /**
+   * Maximum total tool count for which full inputSchemas are injected
+   * inline. Registries with more tools fall back to descriptions-only
+   * (the model reads schema files on demand). Default 30. Set to 0 to
+   * disable schema injection entirely; set to a large number to always
+   * include schemas when they fit the token budget.
+   */
+  schemaInjectionToolLimit?: number;
   /** UI viewer preference: "auto" (default), "glimpse", or "browser". */
   uiViewer?: "auto" | "glimpse" | "browser";
 }

@@ -143,4 +143,54 @@ describe("buildContextBlock", () => {
     const result = buildContextBlock(reg, { contextBudgetTokens: 30 });
     expect(result.block).toContain(reg.root);
   });
+
+  it("treats registries with > 30 tools as large (skips renderWithSchemas)", () => {
+    // 31 tools → over the default limit of 30 → schemas NOT included,
+    // even though the schemas would easily fit the token budget.
+    const tools = Array.from({ length: 31 }, (_, i) => ({
+      name: `tool_${i}`,
+      description: `Tool ${i}.`,
+    }));
+    const reg = makeRegistry([{ name: "bigserver", tools }]);
+    const result = buildContextBlock(reg, { contextBudgetTokens: 100000 });
+    expect(result.schemasIncluded).toBe(false);
+    expect(result.block).toContain("tools/<tool>.json"); // fallback footer
+    expect(result.block).not.toContain("Full input schemas are included above");
+  });
+
+  it("includes schemas for registries with exactly 30 tools (boundary)", () => {
+    const tools = Array.from({ length: 30 }, (_, i) => ({
+      name: `tool_${i}`,
+      description: `Tool ${i}.`,
+    }));
+    const reg = makeRegistry([{ name: "server", tools }]);
+    const result = buildContextBlock(reg, { contextBudgetTokens: 100000 });
+    expect(result.schemasIncluded).toBe(true);
+    expect(result.block).toContain("Full input schemas are included above");
+  });
+
+  it("respects a custom schemaInjectionToolLimit", () => {
+    // 5 tools but limit set to 3 → treated as large.
+    const tools = Array.from({ length: 5 }, (_, i) => ({
+      name: `t${i}`,
+      description: `T${i}.`,
+    }));
+    const reg = makeRegistry([{ name: "s", tools }]);
+    const result = buildContextBlock(reg, {
+      contextBudgetTokens: 100000,
+      schemaInjectionToolLimit: 3,
+    });
+    expect(result.schemasIncluded).toBe(false);
+  });
+
+  it("schemaInjectionToolLimit=0 disables schema injection entirely", () => {
+    const reg = makeRegistry([
+      { name: "fs", tools: [{ name: "read_file", description: "Read a file." }] },
+    ]);
+    const result = buildContextBlock(reg, {
+      contextBudgetTokens: 100000,
+      schemaInjectionToolLimit: 0,
+    });
+    expect(result.schemasIncluded).toBe(false);
+  });
 });

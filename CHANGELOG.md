@@ -4,6 +4,18 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] — 2026-07-19
+
+### Changed — hard tool-count limit for inline schema injection
+
+- **Registries with more than 30 tools now skip the `renderWithSchemas` level entirely** and fall back to descriptions-only injection. Previously the only gate was the token budget, which made behavior unpredictable: a registry could fit full schemas one turn and not the next (when tools were added), and the injector would build a large schema block only to discard it. The new rule is a hard, predictable cutoff at 30 tools.
+- New `BridgeSettings.schemaInjectionToolLimit` (default `30`) controls the threshold. Set it to `0` to disable inline schema injection entirely; set it to a large number to fall back to the pure token-budget behavior.
+- Boundary behavior: exactly 30 tools → schemas included; 31 tools → descriptions only.
+
+### Tests
+
+- 4 new tests covering the 30-tool boundary, a custom limit, and `limit=0` (disabled). Total suite: **59 tests across 6 files, all green**. Typecheck: 0 errors.
+
 ## [0.2.3] — 2026-07-19
 
 ### Fixed — context block path + full-schema injection (review follow-up)
