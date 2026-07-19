@@ -76,11 +76,15 @@ export class McpServerManager {
       return abortable(this.connectPromises.get(name)!, signal);
     }
 
-    // Reuse existing connection if healthy
+    // Reuse existing connection if healthy and transport still matches.
     const existing = this.connections.get(name);
     if (existing?.status === "connected") {
-      existing.lastUsedAt = Date.now();
-      return existing;
+      if (transportFingerprint(existing.definition) === transportFingerprint(definition)) {
+        existing.lastUsedAt = Date.now();
+        return existing;
+      }
+      // Transport changed (e.g. mcp-servers.json edit + reload) — drop stale conn.
+      await this.close(name);
     }
 
     const promise = this.createConnection(name, definition, signal);
@@ -363,8 +367,8 @@ export class McpServerManager {
   }
 }
 
-/** Resolve environment variables with interpolation. */
-function resolveEnv(env?: Record<string, string>): Record<string, string> {
+/** Resolve environment variables with interpolation (also used by `doSync`). */
+export function resolveEnv(env?: Record<string, string>): Record<string, string> {
   const resolved: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) {
@@ -374,6 +378,24 @@ function resolveEnv(env?: Record<string, string>): Record<string, string> {
   if (!env) return resolved;
   const overrides = interpolateEnvRecord(env);
   return overrides ? { ...resolved, ...overrides } : resolved;
+}
+
+/** Fingerprint a server definition's transport for stale-connection detection. */
+export function transportFingerprint(definition: ServerDefinition): string {
+  if (definition.command) {
+    return JSON.stringify({
+      k: "stdio",
+      c: definition.command,
+      a: definition.args ?? [],
+      e: definition.env ?? {},
+      cwd: definition.cwd ?? "",
+    });
+  }
+  return JSON.stringify({
+    k: "http",
+    u: definition.url ?? "",
+    h: definition.headers ?? {},
+  });
 }
 
 /** Resolve headers with environment variable interpolation. */

@@ -25,7 +25,8 @@
 //   - project: `.pi/mcp-servers.json`          (overrides global by name)
 //
 // On session_start / `/mcp-bridge reload`: reconcile into meta.json,
-// warn about orphans (never delete), auto-sync newly-added servers only.
+// warn about orphans (never delete), auto-sync added + updated + zero-tool
+// configured servers (see reconcile-and-sync.ts).
 // `enabled: false` entries are skipped (OpenCode semantics).
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";

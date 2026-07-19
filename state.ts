@@ -42,6 +42,11 @@ export interface McpBridgeState {
   toolMetadata: Map<string, ToolMetadata[]>;
   /** Loaded filesystem registry (in-memory mirror of `registry/`). */
   registry: Registry;
+  /**
+   * Bumped whenever the in-memory registry is replaced after reconcile/sync/reload.
+   * `before_agent_start` uses this to decide whether to replace the injected MCP block.
+   */
+  registryGeneration: number;
   /** Bridge-wide settings (from `~/.pi/agent/mcp-bridge.json` if present). */
   settings: BridgeSettings;
   /** Failure backoff tracker: server name → last failure timestamp. */

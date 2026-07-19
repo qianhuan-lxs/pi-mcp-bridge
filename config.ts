@@ -54,7 +54,11 @@ export function loadBridgeSettings(): BridgeSettings {
       : parsed.outputGuard ?? DEFAULT_SETTINGS.outputGuard;
 
   return {
-    idleTimeout: positiveInt(parsed.idleTimeout) ?? DEFAULT_SETTINGS.idleTimeout,
+    // 0 is a valid "disable idle sweep" value (documented in README / types).
+    idleTimeout:
+      parsed.idleTimeout === 0
+        ? 0
+        : positiveInt(parsed.idleTimeout) ?? DEFAULT_SETTINGS.idleTimeout,
     requestTimeoutMs: positiveInt(parsed.requestTimeoutMs) ?? DEFAULT_SETTINGS.requestTimeoutMs!,
     outputGuard,
     contextBudgetTokens:

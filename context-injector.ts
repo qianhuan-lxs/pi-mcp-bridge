@@ -26,6 +26,8 @@ import type { Registry } from "./registry/registry-types.ts";
 import type { BridgeSettings } from "./types.ts";
 
 const HEADER = "## MCP servers (via pi-mcp-bridge)";
+/** Stable end marker so reload/sync can replace a previously injected block. */
+const FOOTER_MARKER = "<!-- /pi-mcp-bridge -->";
 // Used when full inputSchemas are inlined below each tool. Tells the model
 // to call directly and NOT waste a round-trip reading schema files.
 const INSTRUCTION_INLINE =
@@ -77,11 +79,13 @@ export function buildContextBlock(
   const allowSchemas = schemaLimit > 0 && totalToolCount <= schemaLimit;
 
   if (registry.servers.size === 0) {
-    const block = [
-      HEADER,
-      "0 servers configured. Run `/mcp-bridge add <server-name> -- <command>` or hand-edit",
-      `\`${root}/<server>/meta.json\` to add an MCP server.`,
-    ].join("\n");
+    const block = withInjectionFooter(
+      [
+        HEADER,
+        "0 servers configured. Run `/mcp-bridge add <server-name> -- <command>` or hand-edit",
+        `\`${root}/<server>/meta.json\` to add an MCP server.`,
+      ].join("\n"),
+    );
     return { block, truncated: false, schemasIncluded: false, estimatedTokens: estimateTokens(block) };
   }
 
@@ -99,7 +103,7 @@ export function buildContextBlock(
 
   for (const level of levels) {
     if (level.schemasIncluded && !allowSchemas) continue; // skip renderWithSchemas when over the limit
-    const block = level.render(registry);
+    const block = withInjectionFooter(level.render(registry));
     if (estimateTokens(block) <= maxChars) {
       return { block, truncated: false, schemasIncluded: level.schemasIncluded, estimatedTokens: estimateTokens(block) };
     }
@@ -107,9 +111,49 @@ export function buildContextBlock(
 
   // Even the most compact form exceeds the budget. Emit it with a truncation note.
   const compact = renderCountsOnly(registry, root);
-  const note = "> (truncated — read `${root}/<server>/tools/` for the full list)";
-  const block = `${compact}\n${note}`;
+  const note = `> (truncated — read \`${root}/<server>/tools/\` for the full list)`;
+  const block = withInjectionFooter(`${compact}\n${note}`);
   return { block, truncated: true, schemasIncluded: false, estimatedTokens: estimateTokens(block) };
+}
+
+/**
+ * Replace a previously injected MCP block in the system prompt, or append
+ * a new one. Used by `before_agent_start` so reload/sync can refresh the
+ * index instead of leaving a stale header forever.
+ */
+export function replaceOrAppendMcpBlock(systemPrompt: string, block: string): string {
+  const finalized = withInjectionFooter(block.trimEnd());
+  const start = systemPrompt.indexOf(HEADER);
+  if (start === -1) {
+    if (systemPrompt.length === 0) return finalized;
+    const separator = systemPrompt.endsWith("\n") ? "\n" : "\n\n";
+    return `${systemPrompt}${separator}${finalized}`;
+  }
+
+  const fromHeader = systemPrompt.slice(start);
+  const footerInSlice = fromHeader.indexOf(FOOTER_MARKER);
+  let end: number;
+  if (footerInSlice !== -1) {
+    end = start + footerInSlice + FOOTER_MARKER.length;
+    while (end < systemPrompt.length && (systemPrompt[end] === "\n" || systemPrompt[end] === "\r")) {
+      end++;
+    }
+  } else {
+    // Legacy injections without a footer marker: replace through end of prompt.
+    end = systemPrompt.length;
+  }
+
+  const before = systemPrompt.slice(0, start).replace(/[\r\n]+$/, "");
+  const after = systemPrompt.slice(end).replace(/^[\r\n]+/, "");
+  if (!before) return after ? `${finalized}\n\n${after}` : finalized;
+  if (!after) return `${before}\n\n${finalized}`;
+  return `${before}\n\n${finalized}\n\n${after}`;
+}
+
+function withInjectionFooter(block: string): string {
+  const trimmed = block.trimEnd();
+  if (trimmed.includes(FOOTER_MARKER)) return trimmed;
+  return `${trimmed}\n${FOOTER_MARKER}`;
 }
 
 /** Render every tool with its full inputSchema as compact JSON. */
@@ -251,3 +295,5 @@ function estimateTokens(text: string): number {
 
 /** Identifier used to find and replace a previously injected block. */
 export const INJECTION_HEADER = HEADER;
+/** End marker paired with {@link INJECTION_HEADER}. */
+export const INJECTION_FOOTER = FOOTER_MARKER;

@@ -273,7 +273,8 @@ The `/mcp-bridge` command is the primary interface for registry management (no s
     Show how many servers and tools are currently loaded.
 
 /mcp-bridge reload
-    Reconcile optional mcp-servers.json, re-read the registry, refresh context.
+    Reconcile optional mcp-servers.json (added/updated/0-tool auto-sync),
+    re-read the registry, refresh system-prompt context on the next turn.
 
 /mcp-bridge approve <server>
     (Only when `requireConsent` is on.) Approve a server so CallMcpTool calls go through.
@@ -292,7 +293,9 @@ npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <sync|add|validate|lis
 
 ### MCP servers file (OpenCode-aligned, optional)
 
-Hand-edit transport config in a single JSON file — same shape as OpenCode's `mcp` block. The bridge reconciles it into the filesystem registry (`meta.json`) on `session_start` and `/mcp-bridge reload`, then auto-syncs **newly added** servers so `tools/*.json` is populated.
+Hand-edit transport config in a single JSON file — same shape as OpenCode's `mcp` block. The bridge reconciles it into the filesystem registry (`meta.json`) on `session_start` and `/mcp-bridge reload`, then auto-syncs servers that were **added**, had **transport updated**, or are configured but still have **0 tools**.
+
+After `pi update --extensions`, **restart Pi** so the new extension code loads — `/mcp-bridge reload` only reloads the registry + `mcp-servers.json`, not the extension itself.
 
 Paths (project overrides global by server name):
 - Global: `~/.pi/agent/mcp-servers.json`

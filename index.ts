@@ -12,7 +12,7 @@ import { existsSync } from "node:fs";
 import type { McpBridgeState } from "./state.ts";
 import { loadBridgeSettings } from "./config.ts";
 import { loadRegistry } from "./registry/registry-loader.ts";
-import { buildContextBlock, INJECTION_HEADER } from "./context-injector.ts";
+import { buildContextBlock, replaceOrAppendMcpBlock } from "./context-injector.ts";
 import { executeCallMcpTool } from "./call-mcp-tool.ts";
 import { executeFetchMcpResource } from "./fetch-mcp-resource.ts";
 import { executeListMcpResources } from "./list-mcp-resources.ts";
@@ -27,13 +27,50 @@ import { logger } from "./logger.ts";
 import { doSync, doValidate, doAdd, doList } from "./registry-commands.ts";
 import { parseSyncArgs, parseAddArgs } from "./slash-parser.ts";
 import { refreshStatusBar, clearStatusBar, renderListTable, renderStatusLine, STATUS_KEY } from "./status-bar.ts";
-import { reconcileRegistryFromConfig, upsertMcpServersConfigEntry, getMcpServersConfigPaths } from "./mcp-servers-config.ts";
+import { upsertMcpServersConfigEntry, getMcpServersConfigPaths } from "./mcp-servers-config.ts";
+import { reconcileAndAutoSync } from "./reconcile-and-sync.ts";
+import { metaToServerEntry } from "./registry/registry-types.ts";
+import type { Registry } from "./registry/registry-types.ts";
+import type { ToolMetadata } from "./types.ts";
+
+function buildToolMetadata(registry: Registry): Map<string, ToolMetadata[]> {
+  const toolMetadata = new Map<string, ToolMetadata[]>();
+  for (const server of registry.servers.values()) {
+    const metadata: ToolMetadata[] = [];
+    for (const def of server.tools.values()) {
+      metadata.push({
+        name: def.name,
+        originalName: def.name,
+        description: def.description,
+        inputSchema: def.inputSchema,
+        uiResourceUri: def.ui?.resourceUri ?? undefined,
+        uiStreamMode: def.ui?.streamMode ?? undefined,
+      });
+    }
+    toolMetadata.set(server.name, metadata);
+  }
+  return toolMetadata;
+}
+
+function registerLifecycleServers(lifecycle: McpLifecycleManager, registry: Registry): void {
+  lifecycle.clearServers();
+  for (const server of registry.servers.values()) {
+    const entry = metaToServerEntry(server.meta);
+    lifecycle.registerServer(server.name, entry, {
+      idleTimeout: server.meta.lifecycle?.idleTimeoutMinutes,
+    });
+    if (server.meta.lifecycle?.mode === "keep-alive") {
+      lifecycle.markKeepAlive(server.name, entry);
+    }
+  }
+}
 
 export default function mcpBridge(pi: ExtensionAPI) {
   let state: McpBridgeState | null = null;
   let initPromise: Promise<McpBridgeState> | null = null;
   let lifecycleGeneration = 0;
-  let injectedBlock: string | null = null;
+  /** Generation last written into the system prompt via `before_agent_start`. */
+  let lastInjectedGeneration = -1;
 
   async function shutdownState(current: McpBridgeState | null, reason: string): Promise<void> {
     if (!current) return;
@@ -65,68 +102,15 @@ export default function mcpBridge(pi: ExtensionAPI) {
     const settings = loadBridgeSettings();
     let registry = loadRegistry();
 
-    // Reconcile the optional OpenCode-style `mcp-servers.json` into the
-    // registry: upsert metas for new/changed entries. Auto-sync newly
-    // added servers (per the new_only policy) so they don't sit with 0
-    // tools. No-op when no config file is present. `enabled: false` skipped.
-    try {
-      const rec = reconcileRegistryFromConfig();
-      if (rec.sources.length > 0) {
-        logger.info(`mcp-servers.json reconciled from ${rec.sources.join(", ")}: ${rec.added.length} added, ${rec.updated.length} updated, ${rec.orphans.length} orphan(s)`);
-        for (const orphan of rec.orphans) {
-          logger.warn(`registry server "${orphan}" not in mcp-servers.json — kept (not deleted)`);
-        }
-        if (rec.added.length > 0) {
-          // Auto-sync new servers so they have tools on the first turn.
-          // Run in parallel; each is isolated so one failure doesn't block.
-          await Promise.allSettled(
-            rec.added.map(async (name) => {
-              try {
-                const r = await doSync(name, undefined, [], {});
-                if (!r.ok) logger.warn(`auto-sync of "${name}" failed: ${r.error}`);
-                else logger.info(`auto-synced "${name}": ${r.toolsWritten ?? 0} tools`);
-              } catch (error) {
-                logger.warn(
-                  `auto-sync of "${name}" threw: ${error instanceof Error ? error.message : String(error)}`,
-                );
-              }
-            }),
-          );
-          // Re-load the registry so the freshly-synced tools are visible.
-          registry = loadRegistry();
-        } else if (rec.updated.length > 0) {
-          registry = loadRegistry();
-        }
-      }
-    } catch (error) {
-      logger.error("mcp-servers.json reconcile failed", error instanceof Error ? error : undefined);
-    }
-
-    // Build the in-memory tool metadata map from the registry.
-    const toolMetadata = new Map<string, import("./types.ts").ToolMetadata[]>();
-    for (const server of registry.servers.values()) {
-      const metadata: import("./types.ts").ToolMetadata[] = [];
-      for (const [key, def] of server.tools) {
-        metadata.push({
-          name: def.name,
-          originalName: def.name,
-          description: def.description,
-          inputSchema: def.inputSchema,
-          uiResourceUri: def.ui?.resourceUri ?? undefined,
-          uiStreamMode: def.ui?.streamMode ?? undefined,
-        });
-      }
-      toolMetadata.set(server.name, metadata);
-    }
-
-    // Wire up the server manager + lifecycle.
+    // Wire up the server manager + lifecycle early so tools are not stuck on
+    // `not_initialized` while mcp-servers.json auto-sync runs.
     const manager = new McpServerManager(process.cwd());
     manager.setDefaultRequestTimeoutMs(settings.requestTimeoutMs || undefined);
     const lifecycle = new McpLifecycleManager(manager);
     lifecycle.setGlobalIdleTimeout(settings.idleTimeout ?? 10);
     lifecycle.startHealthChecks();
+    registerLifecycleServers(lifecycle, registry);
 
-    // Wire up the UI integration (MCP UI / Glimpse).
     const consentManager = new ConsentManager("once-per-server");
     const uiResourceHandler = new UiResourceHandler(manager);
     let uiServer: UiServerHandle | null = null;
@@ -141,8 +125,9 @@ export default function mcpBridge(pi: ExtensionAPI) {
     const nextState: McpBridgeState = {
       manager,
       lifecycle,
-      toolMetadata,
+      toolMetadata: buildToolMetadata(registry),
       registry,
+      registryGeneration: 1,
       settings,
       failureTracker: new Map(),
       uiResourceHandler,
@@ -158,26 +143,27 @@ export default function mcpBridge(pi: ExtensionAPI) {
 
     state = nextState;
     initPromise = Promise.resolve(nextState);
-
-    // Show the MCP registry summary in the Pi footer.
+    lastInjectedGeneration = -1;
     refreshStatusBar(nextState);
 
-    // Pre-build the context block so the first `context` event is fast and
-    // so we can log the registry summary. Actual injection happens in the
-    // `context` event handler (see below) — there is no injectSystemContext
-    // API on ExtensionContext.
-    try {
-      const result = buildContextBlock(registry, settings);
-      injectedBlock = result.block;
-      if (result.truncated) {
-        logger.warn("context injection was truncated to fit the budget");
-      }
-      logger.info(
-        `session_start: ${registry.servers.size} servers, ${[...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0)} tools`,
-      );
-    } catch (error) {
-      logger.error("context block build failed", error instanceof Error ? error : undefined);
+    // Reconcile mcp-servers.json + auto-sync added/updated/zero-tool servers.
+    // State is already live; refresh registry when sync finishes.
+    if (generation === lifecycleGeneration) {
+      const synced = await reconcileAndAutoSync({
+        sync: (name) => doSync(name, undefined, [], {}),
+      });
+      if (generation !== lifecycleGeneration || state !== nextState) return;
+      registry = synced.registry;
+      nextState.registry = registry;
+      nextState.toolMetadata = buildToolMetadata(registry);
+      nextState.registryGeneration += 1;
+      registerLifecycleServers(lifecycle, registry);
+      refreshStatusBar(nextState);
     }
+
+    logger.info(
+      `session_start: ${registry.servers.size} servers, ${[...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0)} tools`,
+    );
   });
 
   pi.on("session_shutdown", async () => {
@@ -185,7 +171,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
     const current = state;
     state = null;
     initPromise = null;
-    injectedBlock = null;
+    lastInjectedGeneration = -1;
     clearStatusBar(current);
     try {
       await shutdownState(current, "session_shutdown");
@@ -198,25 +184,21 @@ export default function mcpBridge(pi: ExtensionAPI) {
   pi.on("tool_result", event => toolErrorOverride(event.details));
 
   // --- Context injection (REQ-C-001..006) --------------------------------
-  // Cursor-style: append the compact MCP registry index to the SYSTEM PROMPT
-  // via the `before_agent_start` event (which exposes `event.systemPrompt`
-  // and lets us return a replacement). This is the most cache-friendly
-  // injection point — the system prompt is the stable cache prefix, so our
-  // block is cached across turns as long as the registry doesn't change.
-  // (Previously we prepended a user message via the `context` event, which
-  // shifted the whole message array and was less cache-friendly.)
-  //
-  // Idempotent: if `event.systemPrompt` already contains our HEADER, skip.
+  // Cursor-style: append/replace the compact MCP registry index on the
+  // SYSTEM PROMPT via `before_agent_start`. When the registry generation
+  // changes (reload/sync), replace the previous header…footer span so the
+  // model does not keep a stale index for the rest of the session.
   pi.on("before_agent_start", (event, _ctx) => {
     if (!state) return;
     const existing = event.systemPrompt ?? "";
-    if (existing.includes(INJECTION_HEADER)) return; // already injected this session
+    if (lastInjectedGeneration === state.registryGeneration && existing.includes("## MCP servers (via pi-mcp-bridge)")) {
+      return;
+    }
 
     let block: string;
     try {
       const result = buildContextBlock(state.registry, state.settings);
       block = result.block;
-      injectedBlock = block;
       if (result.truncated) logger.warn("context injection was truncated to fit the budget");
       else if (result.schemasIncluded) logger.info("context injection: full schemas included");
       else logger.info("context injection: descriptions only (model will read schema files on demand)");
@@ -225,9 +207,8 @@ export default function mcpBridge(pi: ExtensionAPI) {
       return;
     }
 
-    // Append our block to the system prompt for this turn.
-    const separator = existing.endsWith("\n") ? "\n" : "\n\n";
-    return { systemPrompt: `${existing}${separator}${block}` };
+    lastInjectedGeneration = state.registryGeneration;
+    return { systemPrompt: replaceOrAppendMcpBlock(existing, block) };
   });
 
   // --- Register CallMcpTool (REQ-W-001..008) -----------------------------
@@ -236,9 +217,10 @@ export default function mcpBridge(pi: ExtensionAPI) {
     label: "MCP: Call tool",
     description:
       "Call an MCP tool by server identifier and tool name with arbitrary JSON arguments. " +
-      "IMPORTANT: Always read the tool's schema (registry/<server>/tools/<toolName>.json) " +
-      "BEFORE calling to ensure correct parameters. The `arguments` object must match the " +
-      "tool's inputSchema.",
+      "Prefer the inputSchema already inlined in the MCP servers system-prompt block when present. " +
+      "Otherwise read the absolute tool descriptor at the `folder:` path shown for that server " +
+      "(`<folder>/tools/<toolName>.json`). Do NOT use relative paths like `registry/<server>/...` — " +
+      "they resolve against the agent cwd and miss the real registry. The `arguments` object must match the tool's inputSchema.",
     promptSnippet: "Call any MCP tool by server + toolName + arguments",
     parameters: Type.Object({
       server: Type.String({ description: "Identifier of the MCP server hosting the tool." }),
@@ -407,7 +389,10 @@ export default function mcpBridge(pi: ExtensionAPI) {
         if (state) {
           const registry = loadRegistry();
           state.registry = registry;
-          injectedBlock = null;
+          state.toolMetadata = buildToolMetadata(registry);
+          state.registryGeneration += 1;
+          registerLifecycleServers(state.lifecycle, registry);
+          lastInjectedGeneration = -1;
           refreshStatusBar(state);
           const total = [...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
           notify(`MCP registry reloaded: ${registry.servers.size} servers, ${total} tools. Next turn will use the updated context.`);
@@ -556,39 +541,18 @@ export default function mcpBridge(pi: ExtensionAPI) {
             return;
           }
           const previousCount = state.registry.servers.size;
-          // Reconcile the optional mcp-servers.json first (upsert metas),
-          // then auto-sync any newly-added servers (new_only policy).
-          let addedFromConfig: string[] = [];
-          let orphanWarnings: string[] = [];
-          try {
-            const rec = reconcileRegistryFromConfig();
-            addedFromConfig = rec.added;
-            orphanWarnings = rec.orphans;
-            if (rec.sources.length > 0) {
-              notify(`Reconciled mcp-servers.json (${rec.sources.length} file(s)): ${rec.added.length} added, ${rec.updated.length} updated${rec.orphans.length > 0 ? `, ${rec.orphans.length} orphan(s)` : ""}.`);
-            }
-          } catch (error) {
-            notify(`mcp-servers.json reconcile failed: ${error instanceof Error ? error.message : String(error)}`, "error");
-          }
-          // Auto-sync newly-added servers from the config.
-          if (addedFromConfig.length > 0) {
-            for (const name of addedFromConfig) {
-              notify(`Auto-syncing new server "${name}" from mcp-servers.json…`);
-              const r = await runSync(name, undefined, [], undefined, false);
-              if (!r.ok) notify(`Auto-sync of "${name}" failed: ${r.error}`, "error");
-            }
-          }
-          const registry = loadRegistry();
-          state.registry = registry;
-          // Reset the cached injected block so the `context` event handler
-          // re-builds it from the new registry on the next provider request.
-          injectedBlock = null;
+          const synced = await reconcileAndAutoSync({
+            notify,
+            sync: (name) => runSync(name, undefined, [], undefined, false),
+          });
+          state.registry = synced.registry;
+          state.toolMetadata = buildToolMetadata(synced.registry);
+          state.registryGeneration += 1;
+          registerLifecycleServers(state.lifecycle, synced.registry);
+          lastInjectedGeneration = -1;
           refreshStatusBar(state);
-          const newCount = registry.servers.size;
-          const total = [...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
-          for (const orphan of orphanWarnings) {
-            notify(`Registry server "${orphan}" is not in mcp-servers.json — kept (not deleted). Add it to the file or remove its directory manually.`, "warning");
-          }
+          const newCount = synced.registry.servers.size;
+          const total = [...synced.registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
           notify(
             `MCP registry reloaded: ${newCount} servers, ${total} tools${newCount !== previousCount ? ` (was ${previousCount})` : ""}. Next turn will use the updated context.`,
           );
@@ -608,6 +572,10 @@ export default function mcpBridge(pi: ExtensionAPI) {
             const total = [...state.registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
             notify(`pi-mcp-bridge: ${state.registry.servers.size} servers, ${total} tools`);
           }
+          notify(
+            "Note: after `pi update --extensions`, restart Pi so new extension code loads. `/mcp-bridge reload` only reloads the registry + mcp-servers.json.",
+            "info",
+          );
           return;
         }
 
@@ -647,8 +615,4 @@ export default function mcpBridge(pi: ExtensionAPI) {
       }
     },
   });
-
-  // Suppress unused-variable warnings for the injected-block tracker.
-  void INJECTION_HEADER;
-  void injectedBlock;
 }

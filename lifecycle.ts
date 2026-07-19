@@ -51,6 +51,13 @@ export class McpLifecycleManager {
     }
   }
 
+  /** Drop all registered server entries (used before re-registering after reload). */
+  clearServers(): void {
+    this.keepAliveServers.clear();
+    this.allServers.clear();
+    this.serverSettings.clear();
+  }
+
   setGlobalIdleTimeout(minutes: number): void {
     this.globalIdleTimeout = minutes * 60 * 1000;
   }

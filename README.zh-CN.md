@@ -272,7 +272,8 @@ npx -y @modelcontextprotocol/server-everything sse
     查看当前加载了多少服务器和工具。
 
 /mcp-bridge reload
-    协调可选的 mcp-servers.json，重读注册表，刷新上下文。
+    协调可选的 mcp-servers.json（新加/更新/0-tool 自动 sync），
+    重读注册表，下一轮刷新系统提示中的上下文。
 
 /mcp-bridge approve <server>
     （仅在 `requireConsent` 开启时生效。）批准某服务器，放行后续的 CallMcpTool 调用。
@@ -291,7 +292,9 @@ npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <sync|add|validate|lis
 
 ### MCP 服务器配置文件（对齐 OpenCode，可选）
 
-用单个 JSON 手写传输配置 —— 形状与 OpenCode 的 `mcp` 块一致。`session_start` 和 `/mcp-bridge reload` 时会协调进文件系统注册表（`meta.json`），并对**新加的**服务器自动 sync，以填充 `tools/*.json`。
+用单个 JSON 手写传输配置 —— 形状与 OpenCode 的 `mcp` 块一致。`session_start` 和 `/mcp-bridge reload` 时会协调进文件系统注册表（`meta.json`），并对**新加的**、**传输配置有更新的**、或已配置但仍是 **0 tools** 的服务器自动 sync。
+
+`pi update --extensions` 之后请**重启 Pi** 以加载新扩展代码——`/mcp-bridge reload` 只重读注册表和 `mcp-servers.json`，不会热替换扩展本身。
 
 路径（同名时项目级覆盖全局）：
 - 全局：`~/.pi/agent/mcp-servers.json`

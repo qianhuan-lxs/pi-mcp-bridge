@@ -1,6 +1,11 @@
 // __tests__/context-injector.test.ts
 import { describe, it, expect } from "vitest";
-import { buildContextBlock } from "../context-injector.ts";
+import {
+  buildContextBlock,
+  replaceOrAppendMcpBlock,
+  INJECTION_HEADER,
+  INJECTION_FOOTER,
+} from "../context-injector.ts";
 import type { Registry } from "../registry/registry-types.ts";
 
 function makeRegistry(servers: Array<{ name: string; tools?: Array<{ name: string; description?: string }>; instructions?: string; description?: string }>): Registry {
@@ -62,6 +67,21 @@ describe("buildContextBlock", () => {
     const result = buildContextBlock(reg, { contextBudgetTokens: 10 });
     expect(result.truncated).toBe(true);
     expect(result.block).toContain("truncated");
+    expect(result.block).toContain("/tmp/test/<server>/tools/");
+    expect(result.block).not.toContain("${root}");
+    expect(result.block).toContain(INJECTION_FOOTER);
+  });
+
+  it("replaceOrAppendMcpBlock appends when missing and replaces when present", () => {
+    const blockA = `${INJECTION_HEADER}\nA\n${INJECTION_FOOTER}`;
+    const blockB = `${INJECTION_HEADER}\nB\n${INJECTION_FOOTER}`;
+    const appended = replaceOrAppendMcpBlock("system stuff", blockA);
+    expect(appended).toContain("system stuff");
+    expect(appended).toContain("\nA\n");
+    const replaced = replaceOrAppendMcpBlock(appended, blockB);
+    expect(replaced).toContain("system stuff");
+    expect(replaced).toContain("\nB\n");
+    expect(replaced).not.toContain("\nA\n");
   });
 
   it("respects a larger budget without truncation", () => {

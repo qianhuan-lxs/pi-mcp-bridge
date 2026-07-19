@@ -13,6 +13,7 @@ import { getRegistryRoot } from "./agent-dir.ts";
 import { loadRegistry } from "./registry/registry-loader.ts";
 import { syncServer, validateRegistry, rebuildIndex } from "./registry/registry-writer.ts";
 import type { ServerMeta } from "./registry/registry-types.ts";
+import { resolveEnv } from "./server-manager.ts";
 
 export interface SyncOptions {
   force?: boolean;
@@ -88,7 +89,8 @@ export async function doSync(
     transport = new StdioClientTransport({
       command: meta.transport.command,
       args: meta.transport.args ?? [],
-      env: meta.transport.env,
+      // Match McpServerManager: merge process.env + interpolated overrides.
+      env: resolveEnv(meta.transport.env),
     });
   } else if (meta.transport.kind === "http") {
     const url = new URL(meta.transport.url);

@@ -46,6 +46,7 @@ function makeState(servers: { name: string; tools: string[] }[]): McpBridgeState
     lifecycle: {} as never,
     toolMetadata: new Map(),
     registry: makeRegistry(servers) as never,
+    registryGeneration: 1,
     settings: {} as never,
     failureTracker: new Map(),
     uiResourceHandler: {} as never,

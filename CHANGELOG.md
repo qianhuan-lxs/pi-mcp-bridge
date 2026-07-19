@@ -4,6 +4,22 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] — 2026-07-19
+
+### Fixed — stability pass (context refresh, lifecycle, auto-sync)
+
+Addresses the “context felt lost after reload” footgun and several silent failures around `mcp-servers.json`.
+
+- **System-prompt injection refresh:** MCP block now ends with `<!-- /pi-mcp-bridge -->`. On registry generation bumps (reload/sync), `before_agent_start` **replaces** the old header…footer span instead of skipping forever when the header was already present.
+- **Absolute paths:** truncation note interpolates the real registry root; `CallMcpTool` description no longer recommends relative `registry/...` paths.
+- **Unified reconcile + auto-sync:** `reconcile-and-sync.ts` shared by `session_start` and `/mcp-bridge reload`. Auto-syncs **added**, **updated**, and configured **0-tool** servers. Reload notifies when no config file is found (paths checked).
+- **Lifecycle wiring:** register each registry server for idle disconnect / keep-alive; `idleTimeout: 0` in `mcp-bridge.json` disables the sweep.
+- **Transport fingerprint:** reconnect when definition changed instead of reusing a stale connection.
+- **`doSync` env parity** with `McpServerManager.resolveEnv`; broader `toolErrorOverride` codes (`connect_failed`, `server_not_found`, …).
+- **Early `session_start` state** so tools are not stuck on `not_initialized` during auto-sync.
+- `/mcp-bridge status` notes that extension code updates require a **Pi restart**.
+- Tests for injection replace, auto-sync targets, idleTimeout 0, lifecycle idle close, fingerprints, error codes. Package bump to `0.5.1`.
+
 ## [0.5.0] — 2026-07-19
 
 ### Added — OpenCode-aligned `mcp-servers.json`
