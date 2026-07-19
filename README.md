@@ -123,11 +123,14 @@ registry/
 ```json
 {
   "name": "filesystem",
-  "transport": "stdio",
-  "command": "npx",
-  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me"],
-  "env": {},
-  "idleTimeoutSeconds": 10
+  "transport": {
+    "kind": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me"],
+    "env": {}
+  },
+  "auth": { "kind": "none" },
+  "lifecycle": { "mode": "lazy", "idleTimeoutMinutes": 10 }
 }
 ```
 

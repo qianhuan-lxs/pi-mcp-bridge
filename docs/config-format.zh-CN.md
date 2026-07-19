@@ -25,27 +25,66 @@ JSON Schema：[`registry/schemas/meta.v1.json`](../registry/schemas/meta.v1.json
 {
   "$schema": "https://pi-mcp-bridge.dev/schemas/meta.v1.json",
   "name": "filesystem",                       // 必填，与目录名一致
-  "transport": "stdio",                        // "stdio" | "http" | "sse"，默认 "stdio"
-  "command": "npx",                            // stdio 必填
-  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me"],
-  "env": {                                     // 环境变量，支持 ${VAR} 插值
-    "NODE_OPTIONS": "--no-warnings"
+  "version": "1.0.0",                         // 可选
+  "description": "Filesystem MCP server",     // 可选，会出现在索引里
+  "transport": {                              // 必填
+    "kind": "stdio",                          //   "stdio" | "http"
+    "command": "npx",                         //   stdio 必填
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me"],
+    "env": {                                  //   环境变量，支持 ${VAR} 插值
+      "NODE_OPTIONS": "--no-warnings"
+    },
+    "cwd": "/Users/me"                        //   可选
   },
-  "url": "http://localhost:3000/mcp",          // http/sse 必填
-  "headers": {                                 // 可选，http/sse
-    "Authorization": "Bearer ${env.MCP_TOKEN}"
+  // 或：
+  "transport": {
+    "kind": "http",                           //   "http"（StreamableHTTP，带 SSE 回退）
+    "url": "http://localhost:3000/mcp",
+    "headers": {                              //   可选
+      "Authorization": "Bearer ${env.MCP_TOKEN}"
+    }
   },
-  "bearerToken": "${env.MCP_TOKEN}",           // Authorization 头的简写
-  "idleTimeoutSeconds": 10,                    // 默认取 settings
-  "requestTimeoutMs": 60000,                   // 默认取 settings
-  "disabled": false,                           // 为 true 时跳过该服务器
-  "description": "Filesystem MCP server"       // 可选，会出现在索引里
+  "auth": {                                   // 必填
+    "kind": "none"                             //   "none" | "bearer" | "oauth"
+  },
+  // 或：
+  "auth": {
+    "kind": "bearer",
+    "bearerToken": "ghp_xxx",                 //   字面量 token（不推荐）
+    "bearerTokenEnv": "GITHUB_TOKEN"          //   或连接时从 process.env 读
+  },
+  // 或（Phase 2）：
+  "auth": {
+    "kind": "oauth",
+    "grantType": "authorization_code",
+    "clientId": "...",
+    "scope": "repo"
+  },
+  "lifecycle": {                              // 可选
+    "mode": "lazy",                           //   "lazy" | "eager" | "keep-alive"，默认 "lazy"
+    "idleTimeoutMinutes": 10,                 //   默认取 settings
+    "requestTimeoutMs": 60000                 //   默认取 settings
+  },
+  "capabilities": {                           // 可选，能力标志
+    "tools": true,
+    "resources": true,
+    "prompts": false,
+    "sampling": false,
+    "elicitation": false
+  },
+  "exposeResources": true,                    // 可选，默认 true
+  "excludeTools": ["internal_debug"],         // 可选，从注册表里隐藏工具
+  "ui": {                                     // 可选
+    "viewer": "auto"                          //   "auto" | "glimpse" | "browser"
+  },
+  "syncedAt": "2026-07-19T05:24:00.000Z",     // 由 `sync` 写入
+  "syncedFrom": "live-server"                 // "live-server" | "manual"
 }
 ```
 
 ### 环境变量插值
 
-`env`、`headers`、`bearerToken`、`url`、`args`、`command` 里的值在连接时支持 `${VAR}` 与 `${env.VAR}` 插值，来源是 `process.env`。未知变量展开为空字符串。
+`transport.env`、`transport.headers`、`transport.url`、`transport.args`、`transport.command` 里的值在连接时支持 `${VAR}` 与 `${env.VAR}` 插值，来源是 `process.env`。未知变量展开为空字符串。
 
 ### `npx` 解析
 

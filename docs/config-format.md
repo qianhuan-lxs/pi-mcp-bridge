@@ -25,27 +25,66 @@ JSON Schema: [`registry/schemas/meta.v1.json`](../registry/schemas/meta.v1.json)
 {
   "$schema": "https://pi-mcp-bridge.dev/schemas/meta.v1.json",
   "name": "filesystem",                       // required, matches dir name
-  "transport": "stdio",                        // "stdio" | "http" | "sse", default "stdio"
-  "command": "npx",                            // required for stdio
-  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me"],
-  "env": {                                     // env vars, supports ${VAR} interpolation
-    "NODE_OPTIONS": "--no-warnings"
+  "version": "1.0.0",                         // optional
+  "description": "Filesystem MCP server",     // optional, shown in the index
+  "transport": {                              // required
+    "kind": "stdio",                          //   "stdio" | "http"
+    "command": "npx",                         //   required for stdio
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me"],
+    "env": {                                  //   env vars, supports ${VAR} interpolation
+      "NODE_OPTIONS": "--no-warnings"
+    },
+    "cwd": "/Users/me"                        //   optional
   },
-  "url": "http://localhost:3000/mcp",          // required for http/sse
-  "headers": {                                 // optional, for http/sse
-    "Authorization": "Bearer ${env.MCP_TOKEN}"
+  // OR:
+  "transport": {
+    "kind": "http",                           //   "http" (StreamableHTTP with SSE fallback)
+    "url": "http://localhost:3000/mcp",
+    "headers": {                              //   optional
+      "Authorization": "Bearer ${env.MCP_TOKEN}"
+    }
   },
-  "bearerToken": "${env.MCP_TOKEN}",           // shorthand for Authorization header
-  "idleTimeoutSeconds": 10,                    // default from settings
-  "requestTimeoutMs": 60000,                   // default from settings
-  "disabled": false,                           // if true, server is skipped
-  "description": "Filesystem MCP server"       // optional, shown in the index
+  "auth": {                                   // required
+    "kind": "none"                             //   "none" | "bearer" | "oauth"
+  },
+  // OR:
+  "auth": {
+    "kind": "bearer",
+    "bearerToken": "ghp_xxx",                 //   literal token (not recommended)
+    "bearerTokenEnv": "GITHUB_TOKEN"          //   OR read from process.env at connect time
+  },
+  // OR (Phase 2):
+  "auth": {
+    "kind": "oauth",
+    "grantType": "authorization_code",
+    "clientId": "...",
+    "scope": "repo"
+  },
+  "lifecycle": {                              // optional
+    "mode": "lazy",                           //   "lazy" | "eager" | "keep-alive", default "lazy"
+    "idleTimeoutMinutes": 10,                 //   default from settings
+    "requestTimeoutMs": 60000                 //   default from settings
+  },
+  "capabilities": {                           // optional, capability flags
+    "tools": true,
+    "resources": true,
+    "prompts": false,
+    "sampling": false,
+    "elicitation": false
+  },
+  "exposeResources": true,                    // optional, default true
+  "excludeTools": ["internal_debug"],         // optional, hide tools from the registry
+  "ui": {                                     // optional
+    "viewer": "auto"                          //   "auto" | "glimpse" | "browser"
+  },
+  "syncedAt": "2026-07-19T05:24:00.000Z",     // set by `sync`
+  "syncedFrom": "live-server"                 // "live-server" | "manual"
 }
 ```
 
 ### Env interpolation
 
-Values in `env`, `headers`, `bearerToken`, `url`, `args`, and `command` support `${VAR}` and `${env.VAR}` interpolation against `process.env` at connect time. Unknown variables expand to an empty string.
+Values in `transport.env`, `transport.headers`, `transport.url`, `transport.args`, and `transport.command` support `${VAR}` and `${env.VAR}` interpolation against `process.env` at connect time. Unknown variables expand to an empty string.
 
 ### `npx` resolution
 
