@@ -1,0 +1,33 @@
+{
+  "$schema": "https://pi-mcp-bridge.dev/schemas/tool.v1.json",
+  "name": "read_file",
+  "title": "Read File",
+  "description": "Read the complete contents of a file from the filesystem. Handles various text encodings and provides detailed error messages if the file cannot be read. Use this tool when working with text files (csv, txt, json, etc.) or when you need to inspect file contents.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Absolute path to the file to read."
+      }
+    },
+    "required": ["path"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "content": { "type": "string" }
+    }
+  },
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "ui": {
+    "resourceUri": null,
+    "streamMode": null
+  },
+  "_meta": {}
+}

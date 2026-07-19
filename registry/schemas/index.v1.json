@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pi-mcp-bridge.dev/schemas/index.v1.json",
+  "title": "pi-mcp-bridge aggregate registry index",
+  "type": "object",
+  "required": ["version", "generatedAt", "registryRoot", "servers"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "registryRoot": { "type": "string" },
+    "servers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "transportKind", "toolCount", "tools", "resources"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "transportKind": { "enum": ["stdio", "http"] },
+          "toolCount": { "type": "integer", "minimum": 0 },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "description": { "type": "string" }
+              }
+            }
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["uri", "name"],
+              "additionalProperties": false,
+              "properties": {
+                "uri": { "type": "string" },
+                "name": { "type": "string" },
+                "description": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://pi-mcp-bridge.dev/schemas/index.v1.json",
+  "version": 1,
+  "generatedAt": "2026-07-19T05:24:00.000Z",
+  "registryRoot": "/Users/example/.pi/agent/mcp-registry",
+  "servers": [
+    {
+      "name": "filesystem",
+      "description": "MCP server for filesystem access (read/list files).",
+      "transportKind": "stdio",
+      "toolCount": 2,
+      "tools": [
+        { "name": "read-file", "description": "Read the complete contents of a file from the filesystem..." },
+        { "name": "list-files", "description": "List the contents of a directory..." }
+      ],
+      "resources": []
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pi-mcp-bridge.dev/schemas/meta.v1.json",
+  "title": "pi-mcp-bridge server meta.json",
+  "type": "object",
+  "required": ["name", "transport", "auth"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": {
+      "type": "string",
+      "description": "Server identifier. MUST match the directory name.",
+      "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"
+    },
+    "version": { "type": "string" },
+    "description": { "type": "string" },
+    "transport": {
+      "type": "object",
+      "oneOf": [
+        {
+          "required": ["kind", "command"],
+          "properties": {
+            "kind": { "const": "stdio" },
+            "command": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "cwd": { "type": "string" }
+          }
+        },
+        {
+          "required": ["kind", "url"],
+          "properties": {
+            "kind": { "const": "http" },
+            "url": { "type": "string", "format": "uri" },
+            "headers": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        }
+      ]
+    },
+    "auth": {
+      "type": "object",
+      "oneOf": [
+        {
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "none" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "bearer" },
+            "bearerToken": { "type": "string" },
+            "bearerTokenEnv": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "oauth" },
+            "grantType": { "enum": ["authorization_code", "client_credentials"] },
+            "clientId": { "type": "string" },
+            "clientSecret": { "type": "string" },
+            "scope": { "type": "string" },
+            "redirectUri": { "type": "string" },
+            "clientName": { "type": "string" },
+            "clientUri": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["lazy", "eager", "keep-alive"] },
+        "idleTimeoutMinutes": { "type": "number", "minimum": 0 },
+        "requestTimeoutMs": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "tools": { "type": "boolean" },
+        "resources": { "type": "boolean" },
+        "prompts": { "type": "boolean" },
+        "sampling": { "type": "boolean" },
+        "elicitation": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "exposeResources": { "type": "boolean" },
+    "excludeTools": { "type": "array", "items": { "type": "string" } },
+    "ui": {
+      "type": "object",
+      "properties": {
+        "viewer": { "enum": ["auto", "glimpse", "browser"] }
+      },
+      "additionalProperties": false
+    },
+    "syncedAt": { "type": "string", "format": "date-time" },
+    "syncedFrom": { "enum": ["live-server", "manual"] }
+  }
+}

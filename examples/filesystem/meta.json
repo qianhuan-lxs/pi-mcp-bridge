@@ -1,0 +1,33 @@
+{
+  "$schema": "https://pi-mcp-bridge.dev/schemas/meta.v1.json",
+  "name": "filesystem",
+  "version": "0.6.0",
+  "description": "MCP server for filesystem access (read/list files).",
+  "transport": {
+    "kind": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+  },
+  "auth": {
+    "kind": "none"
+  },
+  "lifecycle": {
+    "mode": "lazy",
+    "idleTimeoutMinutes": 10,
+    "requestTimeoutMs": 30000
+  },
+  "capabilities": {
+    "tools": true,
+    "resources": true,
+    "prompts": false,
+    "sampling": false,
+    "elicitation": false
+  },
+  "exposeResources": true,
+  "excludeTools": [],
+  "ui": {
+    "viewer": "auto"
+  },
+  "syncedAt": "2026-07-19T05:24:00.000Z",
+  "syncedFrom": "manual"
+}

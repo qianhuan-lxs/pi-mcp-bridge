@@ -1,0 +1,43 @@
+{
+  "$schema": "https://pi-mcp-bridge.dev/schemas/tool.v1.json",
+  "name": "list_files",
+  "title": "List Files",
+  "description": "List the contents of a directory. Returns file and subdirectory names with metadata. Use this to explore directory structure before reading specific files.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Absolute directory path to list."
+      }
+    },
+    "required": ["path"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "entries": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "type": { "enum": ["file", "directory"] },
+            "size": { "type": "number" }
+          }
+        }
+      }
+    }
+  },
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "ui": {
+    "resourceUri": null,
+    "streamMode": null
+  },
+  "_meta": {}
+}
