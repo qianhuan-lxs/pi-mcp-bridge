@@ -64,6 +64,7 @@ export function loadBridgeSettings(): BridgeSettings {
         ? 0
         : positiveInt(parsed.schemaInjectionToolLimit) ?? undefined,
     uiViewer: parsed.uiViewer ?? DEFAULT_SETTINGS.uiViewer!,
+    requireConsent: parsed.requireConsent === true,
   };
 }
 

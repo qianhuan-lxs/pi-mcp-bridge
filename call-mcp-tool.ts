@@ -25,6 +25,7 @@ import { metaToServerEntry } from "./registry/registry-types.ts";
 import { buildToolMetadata, findToolByName, formatSchema, getToolNames } from "./tool-metadata.ts";
 import { resolveMcpResultContent, transformMcpContent } from "./tool-registrar.ts";
 import { guardMcpOutput, guardedMcpDetails, resolveMcpOutputGuardOptions } from "./mcp-output-guard.ts";
+import { maybeStartUiSession, type UiSessionRuntime } from "./ui-session.ts";
 import { logger } from "./logger.ts";
 import { throwIfAborted } from "./abort.ts";
 
@@ -62,6 +63,16 @@ export async function executeCallMcpTool(
   }
   const tool = match.tool;
 
+  // --- Consent gate (opt-in via settings.requireConsent) ----------------
+  if (state.settings.requireConsent && state.consentManager.requiresPrompt(params.server)) {
+    const hint = `Server "${params.server}" requires user consent before tool calls. Run \`/mcp-bridge approve ${params.server}\` in the Pi prompt to approve it, then retry.`;
+    state.ui?.notify?.(hint, "warning");
+    return {
+      content: [{ type: "text", text: hint }],
+      details: { mode: "call", error: "consent_required", server: params.server },
+    };
+  }
+
   // --- Lazy connect (REQ-W-004) -----------------------------------------
   let connection = state.manager.getConnection(params.server);
   if (!connection || connection.status !== "connected") {
@@ -89,15 +100,45 @@ export async function executeCallMcpTool(
   // --- Forward (REQ-W-005) ----------------------------------------------
   const outputGuardOptions = resolveMcpOutputGuardOptions(state.settings);
 
+  // Hoisted so the catch/abort handler can notify the UI session.
+  let uiRuntime: UiSessionRuntime | null = null;
+
   try {
     state.manager.touch(params.server);
     state.manager.incrementInFlight(params.server);
 
+    // --- UI session (Phase 1 UI port) -----------------------------------
+    // If the tool's registry descriptor declares `ui.resourceUri`, start
+    // (or reuse) a UI session before forwarding the call. The session's
+    // `requestMeta` is attached to the MCP `tools/call` request.
+    if (tool.ui?.resourceUri) {
+      try {
+        uiRuntime = await maybeStartUiSession(state, {
+          serverName: params.server,
+          toolName: tool.name,
+          toolArgs: params.arguments ?? {},
+          uiResourceUri: tool.ui.resourceUri,
+          streamMode: tool.ui.streamMode ?? undefined,
+        });
+      } catch (error) {
+        logger.warn(
+          `UI session start failed for ${params.server}/${tool.name}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
     const result = (await state.manager.callTool(
       params.server,
-      { name: tool.name, arguments: params.arguments ?? {} },
+      {
+        name: tool.name,
+        arguments: params.arguments ?? {},
+        _meta: uiRuntime?.requestMeta,
+      },
       signal,
     )) as CallToolResult;
+
+    // Push the result to the UI iframe if a session is open.
+    uiRuntime?.sendToolResult(result);
 
     // --- Result mapping (REQ-W-006) --------------------------------------
     if (result.isError) {
@@ -138,6 +179,7 @@ export async function executeCallMcpTool(
   } catch (error) {
     // --- Abort handling (REQ-W-007) -------------------------------------
     if (signal?.aborted) {
+      uiRuntime?.sendToolCancelled("CallMcpTool aborted.");
       return {
         content: [{ type: "text", text: "CallMcpTool aborted." }],
         details: { mode: "call", error: "aborted", server: params.server, tool: tool.name },

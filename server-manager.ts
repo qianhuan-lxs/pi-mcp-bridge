@@ -288,7 +288,7 @@ export class McpServerManager {
   /** Forward a `tools/call` request to a connected server. */
   async callTool(
     name: string,
-    request: { name: string; arguments?: Record<string, unknown> },
+    request: { name: string; arguments?: Record<string, unknown>; _meta?: Record<string, unknown> },
     signal?: AbortSignal,
   ): Promise<unknown> {
     const connection = this.connections.get(name);

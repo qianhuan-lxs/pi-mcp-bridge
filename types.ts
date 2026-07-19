@@ -104,6 +104,11 @@ export interface BridgeSettings {
   schemaInjectionToolLimit?: number;
   /** UI viewer preference: "auto" (default), "glimpse", or "browser". */
   uiViewer?: "auto" | "glimpse" | "browser";
+  /**
+   * When true, CallMcpTool blocks on the first call to each server until the
+   * user runs `/mcp-bridge approve <server>`. Default false (no consent gate).
+   */
+  requireConsent?: boolean;
 }
 
 // Tool metadata used by the bridge (in-memory representation of registry tools)

@@ -15,6 +15,7 @@ import { buildContextBlock, INJECTION_HEADER } from "./context-injector.ts";
 import { executeCallMcpTool } from "./call-mcp-tool.ts";
 import { executeFetchMcpResource } from "./fetch-mcp-resource.ts";
 import { executeListMcpResources } from "./list-mcp-resources.ts";
+import { renderWrapperToolCall, renderMcpToolResult } from "./tool-result-renderer.ts";
 import { McpServerManager } from "./server-manager.ts";
 import { McpLifecycleManager } from "./lifecycle.ts";
 import { ConsentManager } from "./consent-manager.ts";
@@ -213,6 +214,20 @@ export default function mcpBridge(pi: ExtensionAPI) {
       }
       return executeCallMcpTool(state, params, signal);
     },
+    renderCall(args: { server: string; toolName: string; arguments?: Record<string, unknown> }, theme: unknown) {
+      return renderWrapperToolCall(
+        {
+          displayTitle: `${args.toolName} @ ${args.server}`,
+          argsJson: args.arguments ? JSON.stringify(args.arguments) : undefined,
+        },
+        theme as never,
+      );
+    },
+    renderResult(result: { details?: { error?: unknown } }, options: never, theme: unknown) {
+      return renderMcpToolResult(result as never, options, theme as never, {
+        isError: Boolean(result.details?.error),
+      });
+    },
   });
 
   // --- Register FetchMcpResource (REQ-W-009..014) -----------------------
@@ -247,6 +262,20 @@ export default function mcpBridge(pi: ExtensionAPI) {
       }
       return executeFetchMcpResource(state, params, signal);
     },
+    renderCall(args: { server: string; uri: string; downloadPath?: string }, theme: unknown) {
+      return renderWrapperToolCall(
+        {
+          displayTitle: `${args.uri} @ ${args.server}`,
+          argsJson: args.downloadPath ? JSON.stringify({ downloadPath: args.downloadPath }) : undefined,
+        },
+        theme as never,
+      );
+    },
+    renderResult(result: { details?: { error?: unknown } }, options: never, theme: unknown) {
+      return renderMcpToolResult(result as never, options, theme as never, {
+        isError: Boolean(result.details?.error),
+      });
+    },
   });
 
   // --- Register ListMcpResources (Cursor parity) -------------------------
@@ -270,11 +299,19 @@ export default function mcpBridge(pi: ExtensionAPI) {
       }
       return executeListMcpResources(state, params, signal);
     },
+    renderCall(args: { server: string }, theme: unknown) {
+      return renderWrapperToolCall({ displayTitle: `list @ ${args.server}` }, theme as never);
+    },
+    renderResult(result: { details?: { error?: unknown } }, options: never, theme: unknown) {
+      return renderMcpToolResult(result as never, options, theme as never, {
+        isError: Boolean(result.details?.error),
+      });
+    },
   });
 
   // --- /mcp-bridge slash command (primary registry management) ----------
   pi.registerCommand("mcp-bridge", {
-    description: "Manage the pi-mcp-bridge registry (sync / validate / add / list / status / reload)",
+    description: "Manage the pi-mcp-bridge registry (sync / validate / add / list / status / reload / approve / revoke)",
     handler: async (args, ctx) => {
       const input = (args ?? "").trim();
       const parts = input.split(/\s+/);
@@ -399,6 +436,40 @@ export default function mcpBridge(pi: ExtensionAPI) {
           }
           const total = [...state.registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
           notify(`pi-mcp-bridge: ${state.registry.servers.size} servers, ${total} tools`);
+          return;
+        }
+
+        case "approve": {
+          if (!state) {
+            notify("pi-mcp-bridge not initialized", "error");
+            return;
+          }
+          const serverName = rest.trim();
+          if (!serverName) {
+            notify("Usage: /mcp-bridge approve <server>", "error");
+            return;
+          }
+          if (!state.registry.servers.has(serverName)) {
+            notify(`Server "${serverName}" not found in registry.`, "error");
+            return;
+          }
+          state.consentManager.registerDecision(serverName, true);
+          notify(`Approved "${serverName}". Future CallMcpTool calls will go through.`);
+          return;
+        }
+
+        case "revoke": {
+          if (!state) {
+            notify("pi-mcp-bridge not initialized", "error");
+            return;
+          }
+          const serverName = rest.trim();
+          if (!serverName) {
+            notify("Usage: /mcp-bridge revoke <server>", "error");
+            return;
+          }
+          state.consentManager.registerDecision(serverName, false);
+          notify(`Revoked consent for "${serverName}". Future CallMcpTool calls will be blocked until re-approved.`);
           return;
         }
       }

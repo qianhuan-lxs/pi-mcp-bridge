@@ -273,6 +273,12 @@ npx -y @modelcontextprotocol/server-everything sse
 
 /mcp-bridge reload
     从磁盘重读注册表，刷新 agent 上下文。
+
+/mcp-bridge approve <server>
+    （仅在 `requireConsent` 开启时生效。）批准某服务器，放行后续的 CallMcpTool 调用。
+
+/mcp-bridge revoke <server>
+    撤销对某服务器的授权；之后的 CallMcpTool 调用会被拦截，直到再次 approve。
 ```
 
 可选的 `cli.ts` 包装同一套逻辑，供脚本/CI 使用：
@@ -293,7 +299,8 @@ npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <sync|add|validate|lis
   "contextBudgetTokens": 4000,       // 注入系统提示块的最大 token 数
   "schemaInjectionToolLimit": 30,    // 工具数 > N 的注册表跳过内联 schema
                                      // 0 = 完全禁用内联 schema
-  "uiViewer": "auto"                 // "auto" | "browser" | "glimpse"
+  "uiViewer": "auto",                // "auto" | "browser" | "glimpse"
+  "requireConsent": false            // 在 CallMcpTool 前加 /mcp-bridge approve 闸门（默认 false）
 }
 ```
 

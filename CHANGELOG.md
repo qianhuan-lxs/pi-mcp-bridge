@@ -4,6 +4,17 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-07-19
+
+### Added — Wrapper tool rendering, UI session wiring, consent gate
+
+Three UI-layer gaps where code existed but was never invoked are now wired up, bringing the bridge's TUI experience in line with Cursor's.
+
+- **Custom `renderCall` / `renderResult` hooks are now attached to all three wrapper tools** (`CallMcpTool`, `FetchMcpResource`, `ListMcpResources`). Previously `tool-result-renderer.ts` exported `renderWrapperToolCall` / `renderMcpToolResult` but `index.ts` registered the tools without passing them, so Pi fell back to its default renderer and tool calls showed as a generic `CallMcpTool` + a JSON blob. Calls now render as `resolve-library-id @ context7` with a folded argument block, and results show a `Ctrl+O to expand` hint when truncated. Errors auto-expand.
+- **MCP UI sessions are now actually started.** `call-mcp-tool.ts` detects `tool.ui?.resourceUri` and calls `maybeStartUiSession(...)` before forwarding, attaches the session's `requestMeta` to the `tools/call` request, pushes the `CallToolResult` to the iframe once it arrives, and notifies the iframe on abort. Previously the entire UI integration (`consent-manager`, `ui-resource-handler`, `ui-server`, `ui-session`, `glimpse-ui`, `host-html-template`) was initialized in `session_start` but never invoked — tools with interactive UIs silently fell back to text. `McpServerManager.callTool` now accepts `_meta` on the request so the session token can be forwarded.
+- **Opt-in consent gate.** New `BridgeSettings.requireConsent` (default `false`, set in `~/.pi/agent/mcp-bridge.json`). When `true`, `CallMcpTool` blocks the first call to each server with `error: "consent_required"` and a hint pointing at `/mcp-bridge approve <server>`. New `/mcp-bridge approve <server>` and `/mcp-bridge revoke <server>` subcommands drive the `ConsentManager`. Off by default so existing behavior is unchanged.
+- New test file `__tests__/call-mcp-tool.test.ts` (3 tests) covering the consent gate's block / pass / disabled paths.
+
 ## [0.3.1] — 2026-07-19
 
 ### Added — HTTP transport support for `/mcp-bridge sync`

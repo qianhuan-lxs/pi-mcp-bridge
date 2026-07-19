@@ -274,6 +274,12 @@ The `/mcp-bridge` command is the primary interface for registry management (no s
 
 /mcp-bridge reload
     Re-read the registry from disk and refresh the agent context.
+
+/mcp-bridge approve <server>
+    (Only when `requireConsent` is on.) Approve a server so CallMcpTool calls go through.
+
+/mcp-bridge revoke <server>
+    Revoke consent for a server; future CallMcpTool calls will be blocked until re-approved.
 ```
 
 An optional `cli.ts` wraps the same logic for scripting/CI:
@@ -294,7 +300,8 @@ npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <sync|add|validate|lis
   "contextBudgetTokens": 4000,       // max tokens for the injected system-prompt block
   "schemaInjectionToolLimit": 30,    // registries with > N tools skip inline schemas
                                      // 0 = disable inline schemas entirely
-  "uiViewer": "auto"                 // "auto" | "browser" | "glimpse"
+  "uiViewer": "auto",                // "auto" | "browser" | "glimpse"
+  "requireConsent": false            // gate CallMcpTool behind /mcp-bridge approve (default false)
 }
 ```
 
