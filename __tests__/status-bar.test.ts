@@ -5,9 +5,11 @@
 import { describe, it, expect } from "vitest";
 import {
   formatStatusLine,
+  formatTokenCount,
   renderListTable,
   renderStatusLine,
   totalToolCount,
+  updateContextStats,
 } from "../status-bar.ts";
 import type { McpBridgeState } from "../state.ts";
 import type { ListEntry } from "../registry-commands.ts";
@@ -47,7 +49,8 @@ function makeState(servers: { name: string; tools: string[] }[]): McpBridgeState
     toolMetadata: new Map(),
     registry: makeRegistry(servers) as never,
     registryGeneration: 1,
-    settings: {} as never,
+    contextStats: null,
+    settings: { contextBudgetTokens: 4000 } as never,
     failureTracker: new Map(),
     uiResourceHandler: {} as never,
     consentManager: {} as never,
@@ -83,6 +86,22 @@ describe("status-bar", () => {
     expect(two).toContain("3 tools");
   });
 
+  it("formatTokenCount abbreviates thousands", () => {
+    expect(formatTokenCount(850)).toBe("850");
+    expect(formatTokenCount(1200)).toBe("1.2k");
+    expect(formatTokenCount(12000)).toBe("12k");
+  });
+
+  it("formatStatusLine includes context occupancy when stats are present", () => {
+    const theme = makeTheme();
+    const state = makeState([{ name: "a", tools: ["t1", "t2"] }]);
+    updateContextStats(state);
+    const line = formatStatusLine(state, theme);
+    expect(line).toContain("tok");
+    expect(line).toMatch(/\d+%/);
+    expect(line).toMatch(/schemas|names/);
+  });
+
   it("renderListTable shows an empty-registry hint", () => {
     const out = renderListTable([], makeTheme());
     expect(out).toContain("no servers in registry");
@@ -110,7 +129,7 @@ describe("status-bar", () => {
     expect(out).toContain("[success:live-server");
   });
 
-  it("renderStatusLine highlights the counts", () => {
+  it("renderStatusLine highlights the counts and context occupancy", () => {
     const out = renderStatusLine(
       makeState([{ name: "a", tools: ["t1", "t2"] }]),
       makeTheme(),
@@ -119,5 +138,7 @@ describe("status-bar", () => {
     expect(out).toContain("[accent:*2*]");
     expect(out).toContain("servers");
     expect(out).toContain("tools");
+    expect(out).toContain("MCP context block");
+    expect(out).toContain("tokens");
   });
 });

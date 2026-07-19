@@ -16,6 +16,22 @@ export interface CompletedUiSession {
   stream?: UiStreamSummary;
 }
 
+/** Snapshot of how much system-prompt space the MCP index occupies. */
+export interface ContextInjectionStats {
+  /** Estimated tokens of the injected Markdown block (chars/4). */
+  estimatedTokens: number;
+  /** Configured `contextBudgetTokens` (default 4000). */
+  budgetTokens: number;
+  /** `round(estimated / budget * 100)`. */
+  percentOfBudget: number;
+  /** Whether full inputSchemas were inlined. */
+  schemasIncluded: boolean;
+  /** Whether even the compact form exceeded the budget. */
+  truncated: boolean;
+  /** Raw character length of the block. */
+  charCount: number;
+}
+
 export type SendMessageFn = (
   message: {
     customType: string;
@@ -47,6 +63,11 @@ export interface McpBridgeState {
    * `before_agent_start` uses this to decide whether to replace the injected MCP block.
    */
   registryGeneration: number;
+  /**
+   * Latest MCP system-prompt injection size estimate (vs contextBudgetTokens).
+   * Refreshed with the status bar / before_agent_start.
+   */
+  contextStats: ContextInjectionStats | null;
   /** Bridge-wide settings (from `~/.pi/agent/mcp-bridge.json` if present). */
   settings: BridgeSettings;
   /** Failure backoff tracker: server name → last failure timestamp. */

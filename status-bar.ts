@@ -4,7 +4,8 @@
 // extensions each register their own keyed status line. We key ours
 // "mcp-bridge" and refresh it on session_start, sync, and reload.
 
-import type { McpBridgeState } from "./state.ts";
+import { buildContextBlock } from "./context-injector.ts";
+import type { ContextInjectionStats, McpBridgeState } from "./state.ts";
 import type { ListEntry } from "./registry-commands.ts";
 
 export const STATUS_KEY = "mcp-bridge";
@@ -22,15 +23,56 @@ export function totalToolCount(state: McpBridgeState): number {
   return total;
 }
 
-/** Build the footer status string: `MCP: 3 servers, 40 tools`. */
+/**
+ * Recompute MCP injection size from the current registry and stash it on state.
+ * Safe to call often — buildContextBlock is pure and cheap for typical registries.
+ */
+export function updateContextStats(state: McpBridgeState): ContextInjectionStats {
+  const result = buildContextBlock(state.registry, state.settings);
+  const budgetTokens = state.settings.contextBudgetTokens ?? 4000;
+  const stats: ContextInjectionStats = {
+    estimatedTokens: result.estimatedTokens,
+    budgetTokens,
+    percentOfBudget:
+      budgetTokens > 0 ? Math.round((result.estimatedTokens / budgetTokens) * 100) : 0,
+    schemasIncluded: result.schemasIncluded,
+    truncated: result.truncated,
+    charCount: result.block.length,
+  };
+  state.contextStats = stats;
+  return stats;
+}
+
+/** Compact token count for the footer (`850`, `1.2k`, `12k`). */
+export function formatTokenCount(tokens: number): string {
+  if (tokens < 1000) return String(tokens);
+  const k = tokens / 1000;
+  const rounded = k >= 10 ? Math.round(k) : Math.round(k * 10) / 10;
+  return `${rounded}k`;
+}
+
+/** Build the footer status string including context occupancy. */
 export function formatStatusLine(state: McpBridgeState, theme: ThemeLike): string {
   const servers = state.registry.servers.size;
   const tools = totalToolCount(state);
-  return theme.fg("dim", `MCP: ${servers} server${servers === 1 ? "" : "s"}, ${tools} tool${tools === 1 ? "" : "s"}`);
+  const base = `MCP: ${servers} server${servers === 1 ? "" : "s"}, ${tools} tool${tools === 1 ? "" : "s"}`;
+  const stats = state.contextStats;
+  if (!stats) return theme.fg("dim", base);
+
+  const used = formatTokenCount(stats.estimatedTokens);
+  const budget = formatTokenCount(stats.budgetTokens);
+  const pct = `${stats.percentOfBudget}%`;
+  const mode = stats.truncated ? "trunc" : stats.schemasIncluded ? "schemas" : "names";
+  return theme.fg("dim", `${base} · ~${used}/${budget} tok (${pct}, ${mode})`);
 }
 
 /** Refresh the footer status from the current registry. No-op without a UI. */
 export function refreshStatusBar(state: McpBridgeState): void {
+  try {
+    updateContextStats(state);
+  } catch {
+    // keep previous stats if rebuild fails
+  }
   if (!state.ui?.setStatus) return;
   state.ui.setStatus(STATUS_KEY, formatStatusLine(state, state.ui.theme as ThemeLike));
 }
@@ -84,13 +126,55 @@ export function renderListTable(entries: ListEntry[], theme: ThemeLike): string 
   return lines.join("\n");
 }
 
-/** Render the `/mcp-bridge status` output as a themed summary. */
+/** Render the `/mcp-bridge status` output as a themed summary + context occupancy. */
 export function renderStatusLine(state: McpBridgeState, theme: ThemeLike): string {
   const servers = state.registry.servers.size;
   const tools = totalToolCount(state);
   const serverPart = theme.fg("accent", bold(theme, String(servers)));
   const toolPart = theme.fg("accent", bold(theme, String(tools)));
-  return theme.fg("dim", "pi-mcp-bridge: ") + serverPart + theme.fg("dim", " servers, ") + toolPart + theme.fg("dim", " tools");
+  const lines = [
+    theme.fg("dim", "pi-mcp-bridge: ") +
+      serverPart +
+      theme.fg("dim", " servers, ") +
+      toolPart +
+      theme.fg("dim", " tools"),
+  ];
+
+  const stats = state.contextStats ?? (() => {
+    try {
+      return updateContextStats(state);
+    } catch {
+      return null;
+    }
+  })();
+
+  if (stats) {
+    const used = theme.fg("accent", bold(theme, String(stats.estimatedTokens)));
+    const budget = theme.fg("dim", String(stats.budgetTokens));
+    const pctColor =
+      stats.percentOfBudget >= 90 ? "error" : stats.percentOfBudget >= 70 ? "warning" : "success";
+    const pct = theme.fg(pctColor, bold(theme, `${stats.percentOfBudget}%`));
+    const mode = stats.truncated
+      ? theme.fg("warning", "truncated")
+      : stats.schemasIncluded
+        ? theme.fg("success", "full schemas inlined")
+        : theme.fg("muted", "names+descriptions (read schema files)");
+    lines.push(
+      theme.fg("dim", "MCP context block: ") +
+        used +
+        theme.fg("dim", " / ") +
+        budget +
+        theme.fg("dim", " tokens (") +
+        pct +
+        theme.fg("dim", " of budget) — ") +
+        mode,
+    );
+    lines.push(
+      theme.fg("dim", `  ${stats.charCount} chars · registry generation ${state.registryGeneration}`),
+    );
+  }
+
+  return lines.join("\n");
 }
 
 function pad(s: string, width: number): string {

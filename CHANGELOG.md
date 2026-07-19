@@ -4,6 +4,17 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] — 2026-07-19
+
+### Added — MCP context occupancy in footer + status
+
+Shows how much system-prompt space the MCP index uses (estimated tokens vs `contextBudgetTokens`):
+
+- Footer: `MCP: 4 servers, 26 tools · ~1.2k/4k tok (30%, names)`
+- `/mcp-bridge status`: detailed line with token count, % of budget (color by pressure), and mode (`full schemas inlined` / `names+descriptions` / `truncated`)
+
+Estimates use the same `chars/4` heuristic as `buildContextBlock`.
+
 ## [0.5.4] — 2026-07-19
 
 ### Added — `/mcp-bridge remove <server>`

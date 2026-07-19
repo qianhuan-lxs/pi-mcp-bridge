@@ -26,7 +26,14 @@ import { toolErrorOverride } from "./error-signal.ts";
 import { logger } from "./logger.ts";
 import { doSync, doValidate, doAdd, doList, doRemove } from "./registry-commands.ts";
 import { parseSyncArgs, parseAddArgs } from "./slash-parser.ts";
-import { refreshStatusBar, clearStatusBar, renderListTable, renderStatusLine, STATUS_KEY } from "./status-bar.ts";
+import {
+  refreshStatusBar,
+  clearStatusBar,
+  renderListTable,
+  renderStatusLine,
+  formatStatusLine,
+  STATUS_KEY,
+} from "./status-bar.ts";
 import {
   upsertMcpServersConfigEntry,
   removeMcpServersConfigEntry,
@@ -132,6 +139,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
       toolMetadata: buildToolMetadata(registry),
       registry,
       registryGeneration: 1,
+      contextStats: null,
       settings,
       failureTracker: new Map(),
       uiResourceHandler,
@@ -203,9 +211,24 @@ export default function mcpBridge(pi: ExtensionAPI) {
     try {
       const result = buildContextBlock(state.registry, state.settings);
       block = result.block;
+      const budget = state.settings.contextBudgetTokens ?? 4000;
+      state.contextStats = {
+        estimatedTokens: result.estimatedTokens,
+        budgetTokens: budget,
+        percentOfBudget: budget > 0 ? Math.round((result.estimatedTokens / budget) * 100) : 0,
+        schemasIncluded: result.schemasIncluded,
+        truncated: result.truncated,
+        charCount: block.length,
+      };
+      if (state.ui?.setStatus) {
+        state.ui.setStatus(STATUS_KEY, formatStatusLine(state, state.ui.theme as { fg: (n: string, t: string) => string }));
+      }
       if (result.truncated) logger.warn("context injection was truncated to fit the budget");
       else if (result.schemasIncluded) logger.info("context injection: full schemas included");
       else logger.info("context injection: descriptions only (model will read schema files on demand)");
+      logger.info(
+        `context injection size: ~${result.estimatedTokens}/${budget} tokens (${state.contextStats.percentOfBudget}%)`,
+      );
     } catch (error) {
       logger.error("context injection failed", error instanceof Error ? error : undefined);
       return;

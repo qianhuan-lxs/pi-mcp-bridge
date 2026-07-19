@@ -66,6 +66,7 @@ function makeState(opts: { requireConsent: boolean; approved?: boolean }): McpBr
     toolMetadata: new Map(),
     registry: makeRegistry(),
     registryGeneration: 1,
+    contextStats: null,
     settings: { requireConsent: opts.requireConsent } as never,
     failureTracker: new Map(),
     uiResourceHandler: {} as never,

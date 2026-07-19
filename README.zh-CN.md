@@ -273,7 +273,7 @@ npx -y @modelcontextprotocol/server-everything sse
     列出注册表里所有服务器及其工具。
 
 /mcp-bridge status
-    查看当前加载了多少服务器和工具。
+    查看服务器/工具数量，以及 MCP 上下文块占用（~tokens / budget）。
 
 /mcp-bridge reload
     协调可选的 mcp-servers.json（新加/更新/0-tool 自动 sync），

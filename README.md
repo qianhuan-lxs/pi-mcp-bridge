@@ -275,7 +275,7 @@ The `/mcp-bridge` command is the primary interface for registry management (no s
     List all servers in the registry and their tools.
 
 /mcp-bridge status
-    Show how many servers and tools are currently loaded.
+    Show servers/tools plus MCP context-block occupancy (~tokens vs budget).
 
 /mcp-bridge reload
     Reconcile optional mcp-servers.json (added/updated/0-tool auto-sync),
