@@ -3,8 +3,8 @@
 // Used by the /mcp-bridge slash command (primary path) and the optional
 // cli.ts wrapper so the two stay in sync.
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -228,4 +228,46 @@ export function doList(): ListEntry[] {
     });
   }
   return entries;
+}
+
+export interface RemoveResult {
+  ok: boolean;
+  serverName: string;
+  removedDir?: string;
+  error?: string;
+  /** True when the registry directory was absent (config-only cleanup still ok). */
+  missingRegistry?: boolean;
+}
+
+/**
+ * Delete `mcp-registry/<server>/` and rebuild index.json.
+ * Rejects names that would escape the registry root.
+ */
+export function doRemove(serverName: string): RemoveResult {
+  const trimmed = serverName.trim();
+  if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed === "." || trimmed === "..") {
+    return { ok: false, serverName, error: `invalid server name "${serverName}"` };
+  }
+  if (basename(trimmed) !== trimmed) {
+    return { ok: false, serverName, error: `invalid server name "${serverName}"` };
+  }
+
+  const root = getRegistryRoot();
+  const serverDir = resolve(root, trimmed);
+  if (!serverDir.startsWith(resolve(root) + "/") && serverDir !== resolve(root)) {
+    return { ok: false, serverName: trimmed, error: `refusing to remove path outside registry: ${serverDir}` };
+  }
+
+  if (!existsSync(serverDir)) {
+    return {
+      ok: true,
+      serverName: trimmed,
+      missingRegistry: true,
+    };
+  }
+
+  rmSync(serverDir, { recursive: true, force: true });
+  const registry = loadRegistry();
+  rebuildIndex(registry);
+  return { ok: true, serverName: trimmed, removedDir: serverDir };
 }

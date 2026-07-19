@@ -263,6 +263,11 @@ The `/mcp-bridge` command is the primary interface for registry management (no s
 /mcp-bridge add <server> --url <url> [--description <text>]
     Add an HTTP-transport server and auto-sync against the URL.
 
+/mcp-bridge remove <server> [--keep-config]
+    Delete the server's registry directory, close any live connection,
+    and remove it from mcp-servers.json (skip JSON edit with --keep-config).
+    Aliases: rm, delete.
+
 /mcp-bridge validate
     Validate the registry against the JSON schemas and rebuild index.json.
 

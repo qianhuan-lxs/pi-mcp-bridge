@@ -262,6 +262,10 @@ npx -y @modelcontextprotocol/server-everything sse
 /mcp-bridge add <server> --url <url> [--description <text>]
     添加 HTTP 传输服务器并对该 URL 自动 sync。
 
+/mcp-bridge remove <server> [--keep-config]
+    删除该服务器的注册表目录、关闭已有连接，并从 mcp-servers.json
+    去掉对应条目（加 --keep-config 则不动 JSON）。别名：rm、delete。
+
 /mcp-bridge validate
     按 JSON Schema 校验注册表，重建 index.json。
 

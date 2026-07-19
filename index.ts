@@ -24,10 +24,14 @@ import { UiResourceHandler } from "./ui-resource-handler.ts";
 import { startUiServer, type UiServerHandle } from "./ui-server.ts";
 import { toolErrorOverride } from "./error-signal.ts";
 import { logger } from "./logger.ts";
-import { doSync, doValidate, doAdd, doList } from "./registry-commands.ts";
+import { doSync, doValidate, doAdd, doList, doRemove } from "./registry-commands.ts";
 import { parseSyncArgs, parseAddArgs } from "./slash-parser.ts";
 import { refreshStatusBar, clearStatusBar, renderListTable, renderStatusLine, STATUS_KEY } from "./status-bar.ts";
-import { upsertMcpServersConfigEntry, getMcpServersConfigPaths } from "./mcp-servers-config.ts";
+import {
+  upsertMcpServersConfigEntry,
+  removeMcpServersConfigEntry,
+  getMcpServersConfigPaths,
+} from "./mcp-servers-config.ts";
 import { reconcileAndAutoSync } from "./reconcile-and-sync.ts";
 import { metaToServerEntry } from "./registry/registry-types.ts";
 import type { Registry } from "./registry/registry-types.ts";
@@ -337,7 +341,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
 
   // --- /mcp-bridge slash command (primary registry management) ----------
   pi.registerCommand("mcp-bridge", {
-    description: "Manage the pi-mcp-bridge registry (sync / validate / add / list / status / reload / approve / revoke)",
+    description: "Manage the pi-mcp-bridge registry (sync / validate / add / remove / list / status / reload / approve / revoke)",
     handler: async (args, ctx) => {
       const input = (args ?? "").trim();
       const parts = input.split(/\s+/);
@@ -531,6 +535,62 @@ export default function mcpBridge(pi: ExtensionAPI) {
               for (const t of e.tools) lines.push(`  - ${t}`);
             }
             notify(lines.join("\n"));
+          }
+          return;
+        }
+
+        case "remove":
+        case "rm":
+        case "delete": {
+          if (!state) {
+            notify("pi-mcp-bridge not initialized", "error");
+            return;
+          }
+          const tokens = rest.trim().split(/\s+/).filter(Boolean);
+          const keepConfig = tokens.includes("--keep-config");
+          const serverName = tokens.find((t) => !t.startsWith("--"));
+          if (!serverName) {
+            notify("Usage: /mcp-bridge remove <server> [--keep-config]", "error");
+            return;
+          }
+          // Drop live connection first so we don't leave a dangling process.
+          try {
+            await state.manager.close(serverName);
+          } catch (error) {
+            logger.warn(
+              `close before remove "${serverName}" failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+          const result = doRemove(serverName);
+          if (!result.ok) {
+            notify(`Remove failed: ${result.error}`, "error");
+            return;
+          }
+          let configNote = "";
+          if (!keepConfig) {
+            const rewritten = removeMcpServersConfigEntry(serverName);
+            if (rewritten.length > 0) {
+              configNote = ` Also removed from: ${rewritten.join(", ")}.`;
+            }
+          } else {
+            configNote = " Left mcp-servers.json unchanged (--keep-config).";
+          }
+          const registry = loadRegistry();
+          state.registry = registry;
+          state.toolMetadata = buildToolMetadata(registry);
+          state.registryGeneration += 1;
+          registerLifecycleServers(state.lifecycle, registry);
+          lastInjectedGeneration = -1;
+          refreshStatusBar(state);
+          const total = [...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
+          if (result.missingRegistry) {
+            notify(
+              `No registry directory for "${serverName}"${configNote} Registry now: ${registry.servers.size} servers, ${total} tools.`,
+            );
+          } else {
+            notify(
+              `Removed "${serverName}" (${result.removedDir}).${configNote} Registry now: ${registry.servers.size} servers, ${total} tools. Next turn will use the updated context.`,
+            );
           }
           return;
         }

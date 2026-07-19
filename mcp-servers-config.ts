@@ -277,6 +277,34 @@ export function upsertMcpServersConfigEntry(
   return path;
 }
 
+/**
+ * Remove one server name from global and/or project `mcp-servers.json`.
+ * Missing files or missing keys are no-ops. Returns paths that were rewritten.
+ */
+export function removeMcpServersConfigEntry(
+  name: string,
+  cwd: string = process.cwd(),
+): string[] {
+  const paths = getMcpServersConfigPaths(cwd);
+  const rewritten: string[] = [];
+  for (const path of [paths.global, paths.project]) {
+    if (!existsSync(path)) continue;
+    let file: McpServersConfigFile;
+    try {
+      const raw = JSON.parse(readFileSync(path, "utf-8"));
+      if (!raw || typeof raw !== "object" || !raw.mcp || typeof raw.mcp !== "object") continue;
+      file = raw as McpServersConfigFile;
+    } catch {
+      continue;
+    }
+    if (!(name in file.mcp)) continue;
+    delete file.mcp[name];
+    atomicWriteJson(path, file);
+    rewritten.push(path);
+  }
+  return rewritten;
+}
+
 function isValidEntry(entry: unknown): entry is McpServerEntryConfig {
   if (!entry || typeof entry !== "object") return false;
   const e = entry as Record<string, unknown>;

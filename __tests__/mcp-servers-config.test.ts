@@ -8,6 +8,7 @@ import {
   entryToServerMeta,
   reconcileRegistryFromConfig,
   upsertMcpServersConfigEntry,
+  removeMcpServersConfigEntry,
   getMcpServersConfigPaths,
   type McpServersConfigFile,
 } from "../mcp-servers-config.ts";
@@ -248,5 +249,21 @@ describe("upsertMcpServersConfigEntry", () => {
       enabled: true,
     });
     expect(raw.mcpServers).toBeUndefined();
+  });
+});
+
+describe("removeMcpServersConfigEntry", () => {
+  it("deletes the named entry from global config", () => {
+    writeGlobal({
+      mcp: {
+        keep: { type: "local", command: ["keep"] },
+        drop: { type: "local", command: ["drop"] },
+      },
+    });
+    const rewritten = removeMcpServersConfigEntry("drop", projectDir);
+    expect(rewritten).toEqual([join(agentDir, "mcp-servers.json")]);
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp-servers.json"), "utf-8"));
+    expect(raw.mcp.keep).toBeDefined();
+    expect(raw.mcp.drop).toBeUndefined();
   });
 });

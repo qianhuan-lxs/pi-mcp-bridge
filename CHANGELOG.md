@@ -4,6 +4,12 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] — 2026-07-19
+
+### Added — `/mcp-bridge remove <server>`
+
+Delete a server from the filesystem registry (`mcp-registry/<server>/`), close any live connection, rebuild `index.json`, and by default also drop the entry from `mcp-servers.json` (use `--keep-config` to leave the JSON alone). Aliases: `rm`, `delete`.
+
 ## [0.5.3] — 2026-07-19
 
 ### Changed — default `schemaInjectionToolLimit` 30 → 10
