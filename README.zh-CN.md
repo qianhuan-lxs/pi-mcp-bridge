@@ -20,7 +20,7 @@ Cursor 的 [Dynamic Context Discovery](https://cursor.com/cn/blog/dynamic-contex
 - **`FetchMcpResource`** —— 通过 `server` + `uri` 读取任意 MCP 资源，可选保存到磁盘。
 - **`ListMcpResources`** —— 列出某个服务器暴露的资源（先发现再读取）。
 - **Filesystem is everything** —— 每个 MCP 服务器由 `registry/<server>/meta.json` + `registry/<server>/tools/<tool>.json` 描述。模型读取这些文件来学习*如何*调用工具，再用正确参数调用 `CallMcpTool`。
-- **Cursor 风格的系统提示注入** —— 每轮对话时，把注册表的一份紧凑 Markdown 索引**追加到系统提示**（经 `before_agent_start` 事件，不是插 user message）。系统提示是最稳定的缓存前缀，所以只要注册表不变，这块就跨轮缓存。小注册表（默认 ≤ 30 个工具）会内联完整 `inputSchema`，模型一次就能调对；大注册表退化到名字 + 描述，模型按需读 schema 文件。
+- **Cursor 风格的系统提示注入** —— 每轮对话时，把注册表的一份紧凑 Markdown 索引**追加到系统提示**（经 `before_agent_start` 事件，不是插 user message）。系统提示是最稳定的缓存前缀，所以只要注册表不变，这块就跨轮缓存。小注册表（默认 ≤ 10 个工具）会内联完整 `inputSchema`，模型一次就能调对；大注册表退化到名字 + 描述，模型按需读 schema 文件。
 - **捕获服务器 `instructions`** —— MCP 协议 `InitializeResult.instructions`（服务器自己声明的用途与用法）在 sync 时被抓取、持久化到 `meta.json`，并作为 blockquote 渲染在每个服务器标题下 —— 模型能看到服务器自己的用法指引，而不只是我们写的工具描述。
 - **Lazy by default** —— MCP 服务器只在工具被调用时才连接，空闲超过可配置阈值后自动断开。
 - **No vendor lock-in** —— 注册表是纯 JSON。可以 `git diff`、手改，或用 `/mcp-bridge sync` 从一个在线 MCP 服务器生成。
@@ -237,7 +237,7 @@ npx -y @modelcontextprotocol/server-everything sse
 
 | 级别 | 内容 | 何时使用 |
 |------|------|----------|
-| 1. `renderWithSchemas` | 工具名 + 描述 + **完整 `inputSchema` JSON 内联** + 服务器 `instructions` | 注册表 ≤ `schemaInjectionToolLimit` 个工具（默认 30）且塞得下 budget |
+| 1. `renderWithSchemas` | 工具名 + 描述 + **完整 `inputSchema` JSON 内联** + 服务器 `instructions` | 注册表 ≤ `schemaInjectionToolLimit` 个工具（默认 10）且塞得下 budget |
 | 2. `renderFull(80)` | 工具名 + 80 字描述 + 服务器 `instructions` | 级别 1 跳过/溢出 |
 | 3. `renderFull(40)` | 工具名 + 40 字描述 + `instructions` | 级别 2 溢出 |
 | 4. `renderKeysOnly` | 仅工具键 + `instructions` | 级别 3 溢出 |
@@ -347,7 +347,7 @@ npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <sync|add|validate|lis
   "requestTimeoutMs": 0,             // 毫秒，0 = 用 SDK 默认值
   "outputGuard": true,               // 截断过大的工具输出
   "contextBudgetTokens": 4000,       // 注入系统提示块的最大 token 数
-  "schemaInjectionToolLimit": 30,    // 工具数 > N 的注册表跳过内联 schema
+  "schemaInjectionToolLimit": 10,    // 工具数 > N 的注册表跳过内联 schema
                                      // 0 = 完全禁用内联 schema
   "uiViewer": "auto",                // "auto" | "browser" | "glimpse"
   "requireConsent": false            // 在 CallMcpTool 前加 /mcp-bridge approve 闸门（默认 false）

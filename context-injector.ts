@@ -49,7 +49,7 @@ const SHORT_DESCRIPTION_CHARS = 40;
 const TINY_DESCRIPTION_CHARS = 80;
 /** Default tool-count limit for inline schema injection. Registries with
  * more tools fall back to descriptions-only. */
-const DEFAULT_SCHEMA_INJECTION_TOOL_LIMIT = 30;
+const DEFAULT_SCHEMA_INJECTION_TOOL_LIMIT = 10;
 
 export interface InjectionResult {
   /** The Markdown block to prepend to the messages. */

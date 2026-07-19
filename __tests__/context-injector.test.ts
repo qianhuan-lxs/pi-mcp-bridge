@@ -166,10 +166,10 @@ describe("buildContextBlock", () => {
     expect(result.block).toContain(reg.root);
   });
 
-  it("treats registries with > 30 tools as large (skips renderWithSchemas)", () => {
-    // 31 tools → over the default limit of 30 → schemas NOT included,
+  it("treats registries with > 10 tools as large (skips renderWithSchemas)", () => {
+    // 11 tools → over the default limit of 10 → schemas NOT included,
     // even though the schemas would easily fit the token budget.
-    const tools = Array.from({ length: 31 }, (_, i) => ({
+    const tools = Array.from({ length: 11 }, (_, i) => ({
       name: `tool_${i}`,
       description: `Tool ${i}.`,
     }));
@@ -180,8 +180,8 @@ describe("buildContextBlock", () => {
     expect(result.block).not.toContain("Full input schemas are included above");
   });
 
-  it("includes schemas for registries with exactly 30 tools (boundary)", () => {
-    const tools = Array.from({ length: 30 }, (_, i) => ({
+  it("includes schemas for registries with exactly 10 tools (boundary)", () => {
+    const tools = Array.from({ length: 10 }, (_, i) => ({
       name: `tool_${i}`,
       description: `Tool ${i}.`,
     }));
@@ -277,7 +277,7 @@ describe("buildContextBlock", () => {
   });
 
   it("tells the model to read descriptor files with absolute paths when schemas are NOT inlined", () => {
-    // Over the 30-tool inline limit → falls to renderFull → files instruction.
+    // Over the 10-tool inline limit → falls to renderFull → files instruction.
     const tools = Array.from({ length: 31 }, (_, i) => ({
       name: `tool_${i}`,
       description: `tool ${i}`,

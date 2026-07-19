@@ -97,7 +97,7 @@ export interface BridgeSettings {
   /**
    * Maximum total tool count for which full inputSchemas are injected
    * inline. Registries with more tools fall back to descriptions-only
-   * (the model reads schema files on demand). Default 30. Set to 0 to
+   * (the model reads schema files on demand). Default 10. Set to 0 to
    * disable schema injection entirely; set to a large number to always
    * include schemas when they fit the token budget.
    */
