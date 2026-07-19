@@ -4,6 +4,12 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-07-19
+
+### Fixed
+
+- **First-time `/mcp-bridge sync <server>` no longer skips with `syncedFrom is "manual"`.** The manual-edit guard in `syncServer` was too coarse: it skipped *any* server whose `meta.json.syncedFrom === "manual"`, including the freshly-created stubs that `doSync`/`doAdd` write (which have `syncedFrom: "manual"` + an empty `tools/` directory). The very first sync therefore never ran, leaving the registry empty and the agent with no MCP tools to call. The guard now only skips when `syncedFrom === "manual"` **and** `tools/` already contains hand-written `.json` descriptors — i.e., only when there's actually something to protect. `--force` still overrides everything.
+
 ## [0.2.0] — 2026-07-19
 
 ### Changed — registry management is now Pi-idiomatic

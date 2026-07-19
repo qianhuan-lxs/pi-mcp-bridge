@@ -82,13 +82,21 @@ export async function syncServer(
       );
     }
     if (existingMeta.syncedFrom === "manual" && !options.force) {
-      return {
-        serverName,
-        toolsWritten: 0,
-        toolsRemoved: 0,
-        resourcesIndexed: 0,
-        skipped: "meta.json.syncedFrom is \"manual\" — pass --force to overwrite",
-      };
+      // Only protect *hand-written* tool descriptors: if tools/ is empty,
+      // there's nothing to clobber, so let the first sync proceed.
+      // (doSync/doAdd create stubs with syncedFrom="manual" + empty tools/.)
+      const hasHandWrittenTools =
+        existsSync(toolsDir) &&
+        readdirSync(toolsDir).some((f) => f.endsWith(".json"));
+      if (hasHandWrittenTools) {
+        return {
+          serverName,
+          toolsWritten: 0,
+          toolsRemoved: 0,
+          resourcesIndexed: 0,
+          skipped: "meta.json.syncedFrom is \"manual\" and tools/ has hand-written descriptors — pass --force to overwrite",
+        };
+      }
     }
   }
 
