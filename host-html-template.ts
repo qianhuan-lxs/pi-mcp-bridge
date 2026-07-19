@@ -29,7 +29,7 @@ export interface HostHtmlTemplateInput {
 
 export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
   const cspContent = buildCspMetaContent(input.resource.meta.csp);
-  const resourceHtml = applyCspMeta(input.resource.html, cspContent);
+  const resourceHtml = applyCspMetaContent(input.resource.html, cspContent);
 
   const sessionToken = safeInlineJSON(input.sessionToken);
   const toolArgs = safeInlineJSON(input.toolArgs);

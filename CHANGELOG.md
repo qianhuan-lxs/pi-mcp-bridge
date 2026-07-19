@@ -4,6 +4,27 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] — 2026-07-19
+
+### Fixed — context injection actually works now (critical)
+
+- **MCP registry was never injected into the agent context.** `index.ts` called `ctx.injectSystemContext(...)`, but `ExtensionContext` / `ExtensionCommandContext` have no such method — the call was guarded by `if (ctx.injectSystemContext)` which was always falsy, so the compact registry index was never sent to the model. Symptom: the model didn't know `CallMcpTool` / `FetchMcpResource` existed or which MCP tools were available, so it fell back to shell commands (`find /`, etc.) instead of calling MCP tools. Fix: hook the documented `pi.on("context", ...)` event (the SDK's supported "injecting context from external sources" hook), which fires before every provider request with the `AgentMessage[]` and lets the handler return a replacement array. We prepend a user message containing the registry block. Injection is idempotent (skips if a message containing our `## MCP servers (via pi-mcp-bridge)` header is already present), so it's safe whether or not the result is persisted across turns.
+- **`/mcp-bridge reload` no longer calls the non-existent `ctx.injectSystemContext`.** It now just updates `state.registry` and clears the cached block; the next `context` event rebuilds the block from the new registry automatically.
+- **`/mcp-bridge sync` now auto-reloads the registry after a successful sync.** Previously the user had to run `/mcp-bridge reload` separately, and even then the (broken) injection didn't reach the model. Now sync updates `state.registry` in place, so the next turn sees the new tools immediately.
+
+### Fixed — pre-existing runtime crashes surfaced by the review
+
+- **`FetchMcpResource` imported a non-existent type `ReadResourceResultContents`.** The MCP SDK exports `ResourceContents` (and `ReadResourceResult.contents` is `ResourceContents[]`); the wrong import name would have crashed `FetchMcpResource` the first time it was invoked. Replaced both usages with `ResourceContents`.
+- **`host-html-template.ts` called `applyCspMeta(...)` but the function is named `applyCspMetaContent`.** Undefined reference — would have crashed the MCP UI host page builder the first time a tool with a `ui.resourceUri` was invoked. Renamed the call site.
+- **`lifecycle.ts` / `server-manager.ts` imported `ServerDefinition` from `types.ts`, which only exports `ServerEntry`.** Type-only import (no runtime crash), but the type annotations were wrong. Aliased `ServerEntry as ServerDefinition` to preserve call sites.
+- **`server-manager.callTool` passed `_meta: undefined` explicitly**, which the MCP SDK's stricter type rejects. Omitted the field instead.
+- **`index.ts` tool `execute` params had implicit `any` types** (`_toolCallId`, `signal`) because the `registerTool` cast bypassed inference. Added explicit `string` / `AbortSignal` annotations.
+
+### Changed
+
+- **Empty-registry context message** now points at `/mcp-bridge add <server> -- <command>` (the v0.2.0 slash-command flow) instead of the removed `pi-mcp-bridge add` CLI.
+- **Typecheck is now clean: 0 errors** (was 13 in v0.2.1, all pre-existing from the 0.1.x port). Tests: 52 passing across 6 files.
+
 ## [0.2.1] — 2026-07-19
 
 ### Fixed

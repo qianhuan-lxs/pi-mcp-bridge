@@ -95,7 +95,7 @@ export async function executeCallMcpTool(
 
     const result = (await state.manager.callTool(
       params.server,
-      { name: tool.name, arguments: params.arguments ?? {}, _meta: undefined },
+      { name: tool.name, arguments: params.arguments ?? {} },
       signal,
     )) as CallToolResult;
 

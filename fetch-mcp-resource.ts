@@ -13,7 +13,7 @@
 //   6. Honors `AbortSignal` and returns `details.error = "aborted"`.
 
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type { ReadResourceResult, ReadResourceResultContents } from "@modelcontextprotocol/sdk/types.js";
+import type { ReadResourceResult, ResourceContents } from "@modelcontextprotocol/sdk/types.js";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, normalize, resolve, sep } from "node:path";
 import type { McpBridgeState } from "./state.ts";
@@ -170,7 +170,7 @@ function validateDownloadPath(downloadPath: string): { ok: true } | { ok: false;
   return { ok: true };
 }
 
-function mapContents(contents: ReadResourceResultContents[]): ContentBlock[] {
+function mapContents(contents: ResourceContents[]): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   for (const c of contents) {
     if (c === null || typeof c !== "object") continue;
@@ -189,7 +189,7 @@ function mapContents(contents: ReadResourceResultContents[]): ContentBlock[] {
   return blocks;
 }
 
-function collectText(contents: ReadResourceResultContents[]): string {
+function collectText(contents: ResourceContents[]): string {
   return mapContents(contents)
     .filter(b => b.type === "text")
     .map(b => (b as { text: string }).text)

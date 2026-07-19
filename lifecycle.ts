@@ -6,7 +6,7 @@
 //   - disconnects idle `lazy` servers after their per-server or global
 //     idle timeout
 
-import type { ServerDefinition } from "./types.ts";
+import type { ServerEntry as ServerDefinition } from "./types.ts";
 import type { McpServerManager } from "./server-manager.ts";
 import { logger } from "./logger.ts";
 

@@ -117,13 +117,13 @@ export default function mcpBridge(pi: ExtensionAPI) {
     state = nextState;
     initPromise = Promise.resolve(nextState);
 
-    // Inject the compact registry index into the session context.
+    // Pre-build the context block so the first `context` event is fast and
+    // so we can log the registry summary. Actual injection happens in the
+    // `context` event handler (see below) — there is no injectSystemContext
+    // API on ExtensionContext.
     try {
       const result = buildContextBlock(registry, settings);
-      if (ctx.injectSystemContext) {
-        ctx.injectSystemContext(result.block);
-        injectedBlock = result.block;
-      }
+      injectedBlock = result.block;
       if (result.truncated) {
         logger.warn("context injection was truncated to fit the budget");
       }
@@ -131,7 +131,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
         `session_start: ${registry.servers.size} servers, ${[...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0)} tools`,
       );
     } catch (error) {
-      logger.error("context injection failed", error instanceof Error ? error : undefined);
+      logger.error("context block build failed", error instanceof Error ? error : undefined);
     }
   });
 
@@ -150,6 +150,54 @@ export default function mcpBridge(pi: ExtensionAPI) {
 
   // Re-flag returned MCP tool failures so Pi registers them as errors.
   pi.on("tool_result", event => toolErrorOverride(event.details));
+
+  // --- Context injection (REQ-C-001..006) --------------------------------
+  // The `context` event fires before every provider request with the full
+  // AgentMessage[] and lets us return a replacement array. We prepend a
+  // user message containing the compact MCP registry index so the model
+  // knows which servers/tools exist and that it must use CallMcpTool /
+  // FetchMcpResource to invoke them. Idempotent: if a message containing
+  // our HEADER is already present, we skip injection (covers both the
+  // "result not persisted" and "result persisted" cases).
+  pi.on("context", (event, _ctx) => {
+    if (!state) return;
+    const messages = event.messages;
+    if (!Array.isArray(messages) || messages.length === 0) return;
+
+    // Idempotency: skip if our block is already in the conversation.
+    const alreadyInjected = messages.some(m => {
+      if (typeof m !== "object" || m === null) return false;
+      const role = (m as { role?: string }).role;
+      if (role !== "user") return false;
+      const content = (m as { content?: unknown }).content;
+      if (typeof content === "string") return content.includes(INJECTION_HEADER);
+      if (Array.isArray(content)) {
+        return content.some(
+          c => typeof c === "object" && c !== null && typeof (c as { text?: string }).text === "string" && (c as { text: string }).text.includes(INJECTION_HEADER),
+        );
+      }
+      return false;
+    });
+    if (alreadyInjected) return;
+
+    let block: string;
+    try {
+      const result = buildContextBlock(state.registry, state.settings);
+      block = result.block;
+      injectedBlock = block;
+      if (result.truncated) logger.warn("context injection was truncated to fit the budget");
+    } catch (error) {
+      logger.error("context injection failed", error instanceof Error ? error : undefined);
+      return;
+    }
+
+    const preamble = {
+      role: "user" as const,
+      content: block,
+      timestamp: Date.now(),
+    };
+    return { messages: [preamble, ...messages] };
+  });
 
   // --- Register CallMcpTool (REQ-W-001..008) -----------------------------
   (pi.registerTool as (tool: unknown) => unknown)({
@@ -170,7 +218,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
         }),
       ),
     }),
-    async execute(_toolCallId, params: { server: string; toolName: string; arguments?: Record<string, unknown> }, signal) {
+    async execute(_toolCallId: string, params: { server: string; toolName: string; arguments?: Record<string, unknown> }, signal?: AbortSignal) {
       if (!state) {
         return {
           content: [{ type: "text" as const, text: "pi-mcp-bridge not initialized." }],
@@ -201,9 +249,9 @@ export default function mcpBridge(pi: ExtensionAPI) {
       ),
     }),
     async execute(
-      _toolCallId,
+      _toolCallId: string,
       params: { server: string; uri: string; downloadPath?: string },
-      signal,
+      signal?: AbortSignal,
     ) {
       if (!state) {
         return {
@@ -249,8 +297,16 @@ export default function mcpBridge(pi: ExtensionAPI) {
             return;
           }
           notify(
-            `Synced "${result.serverName}": ${result.toolsWritten} tools written, ${result.toolsRemoved} removed, ${result.resourcesIndexed} resources indexed. Run /mcp-bridge reload to refresh the agent context.`,
+            `Synced "${result.serverName}": ${result.toolsWritten} tools written, ${result.toolsRemoved} removed, ${result.resourcesIndexed} resources indexed. Reloading agent context...`,
           );
+          // Auto-reload so the new tools are visible to the model immediately.
+          if (state) {
+            const registry = loadRegistry();
+            state.registry = registry;
+            injectedBlock = null;
+            const total = [...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
+            notify(`MCP registry reloaded: ${registry.servers.size} servers, ${total} tools. Next turn will use the updated context.`);
+          }
           return;
         }
 
@@ -314,15 +370,13 @@ export default function mcpBridge(pi: ExtensionAPI) {
           const previousCount = state.registry.servers.size;
           const registry = loadRegistry();
           state.registry = registry;
+          // Reset the cached injected block so the `context` event handler
+          // re-builds it from the new registry on the next provider request.
+          injectedBlock = null;
           const newCount = registry.servers.size;
-          const result = buildContextBlock(registry, state.settings);
-          if (ctx.injectSystemContext) {
-            ctx.injectSystemContext(result.block);
-            injectedBlock = result.block;
-          }
           const total = [...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
           notify(
-            `MCP registry reloaded: ${newCount} servers, ${total} tools${newCount !== previousCount ? ` (was ${previousCount})` : ""}`,
+            `MCP registry reloaded: ${newCount} servers, ${total} tools${newCount !== previousCount ? ` (was ${previousCount})` : ""}. Next turn will use the updated context.`,
           );
           return;
         }

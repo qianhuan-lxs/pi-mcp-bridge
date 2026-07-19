@@ -44,7 +44,7 @@ export function buildContextBlock(
   if (registry.servers.size === 0) {
     const block = [
       HEADER,
-      "0 servers configured. Run `pi-mcp-bridge add <server-name>` or hand-edit",
+      "0 servers configured. Run `/mcp-bridge add <server-name> -- <command>` or hand-edit",
       "`registry/<server>/meta.json` to add an MCP server.",
     ].join("\n");
     return { block, truncated: false, estimatedTokens: estimateTokens(block) };

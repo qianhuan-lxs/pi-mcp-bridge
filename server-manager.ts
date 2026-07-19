@@ -12,7 +12,7 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
-import type { McpTool, McpResource, ServerDefinition, Transport } from "./types.ts";
+import type { McpTool, McpResource, ServerEntry as ServerDefinition, Transport } from "./types.ts";
 import { resolveNpxBinary } from "./npx-resolver.ts";
 import { logger } from "./logger.ts";
 import { interpolateEnvRecord, resolveBearerToken, resolveConfigPath } from "./utils.ts";
@@ -288,7 +288,7 @@ export class McpServerManager {
   /** Forward a `tools/call` request to a connected server. */
   async callTool(
     name: string,
-    request: { name: string; arguments?: Record<string, unknown>; _meta?: unknown },
+    request: { name: string; arguments?: Record<string, unknown> },
     signal?: AbortSignal,
   ): Promise<unknown> {
     const connection = this.connections.get(name);
