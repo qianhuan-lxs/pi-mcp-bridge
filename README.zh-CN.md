@@ -76,13 +76,21 @@ pi install npm:@qianhuan-lxs/pi-mcp-bridge
 
 ### 3. 往注册表里添加一个 MCP 服务器
 
-```bash
-# 从一个在线 MCP 服务器同步它的工具到注册表
-npx pi-mcp-bridge sync filesystem -- npx -y @modelcontextprotocol/server-filesystem /Users/me
-
-# 或者手动添加一个服务器，自己写它的工具描述
-npx pi-mcp-bridge add github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx -- npx -y @modelcontextprotocol/server-github
 ```
+# 在 Pi 内部 —— 将一个真实 MCP 服务器的工具同步到注册表（主路径）
+/mcp-bridge sync filesystem -- npx -y @modelcontextprotocol/server-filesystem /Users/me
+
+# 或者先添加一个服务器存根，再同步
+/mcp-bridge add github --env GITHUB_PERSONAL_ACCESS_TOKEN -- npx -y @modelcontextprotocol/server-github
+/mcp-bridge sync github
+
+# 校验 / 列出 / 查看状态
+/mcp-bridge validate
+/mcp-bridge list
+/mcp-bridge status
+```
+
+> **为什么用斜杠命令？** 注册表管理在 Pi 内通过 `/mcp-bridge ...` 完成，无需配置 PATH，也无需安装单独的 CLI 二进制。仍保留可选的 `cli.ts` 供脚本化使用 —— 通过 `npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <cmd>` 调用。
 
 会生成：
 

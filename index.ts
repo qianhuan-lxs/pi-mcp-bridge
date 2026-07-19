@@ -21,6 +21,8 @@ import { UiResourceHandler } from "./ui-resource-handler.ts";
 import { startUiServer, type UiServerHandle } from "./ui-server.ts";
 import { toolErrorOverride } from "./error-signal.ts";
 import { logger } from "./logger.ts";
+import { doSync, doValidate, doAdd, doList } from "./registry-commands.ts";
+import { parseSyncArgs, parseAddArgs } from "./slash-parser.ts";
 
 export default function mcpBridge(pi: ExtensionAPI) {
   let state: McpBridgeState | null = null;
@@ -213,17 +215,100 @@ export default function mcpBridge(pi: ExtensionAPI) {
     },
   });
 
-  // --- /mcp-bridge reload command (REQ-C-005) ---------------------------
+  // --- /mcp-bridge slash command (primary registry management) ----------
   pi.registerCommand("mcp-bridge", {
-    description: "Manage the pi-mcp-bridge registry",
+    description: "Manage the pi-mcp-bridge registry (sync / validate / add / list / status / reload)",
     handler: async (args, ctx) => {
-      const parts = (args?.trim()?.split(/\s+/) ?? []) as string[];
+      const input = (args ?? "").trim();
+      const parts = input.split(/\s+/);
       const subcommand = parts[0] ?? "";
+      const rest = input.slice(subcommand.length).trim();
+      const notify = (msg: string, level: "info" | "error" = "info") => {
+        if (ctx.hasUI) ctx.ui.notify(msg, level);
+        else console.log(msg);
+      };
 
       switch (subcommand) {
+        case "sync": {
+          const parsed = parseSyncArgs(rest);
+          if ("error" in parsed) {
+            notify(parsed.error, "error");
+            return;
+          }
+          notify(`Syncing "${parsed.serverName}" (connecting to live server)...`);
+          const result = await doSync(parsed.serverName, parsed.command, parsed.commandArgs, {
+            force: parsed.force,
+            env: Object.keys(parsed.env).length > 0 ? parsed.env : undefined,
+          });
+          if (!result.ok) {
+            notify(`Sync failed: ${result.error}`, "error");
+            return;
+          }
+          if (result.skipped) {
+            notify(`Skipped "${result.serverName}": ${result.skipped}`);
+            return;
+          }
+          notify(
+            `Synced "${result.serverName}": ${result.toolsWritten} tools written, ${result.toolsRemoved} removed, ${result.resourcesIndexed} resources indexed. Run /mcp-bridge reload to refresh the agent context.`,
+          );
+          return;
+        }
+
+        case "validate": {
+          const result = doValidate();
+          if (result.ok) {
+            notify("Registry is valid.");
+            return;
+          }
+          notify(`Registry has ${result.issues.length} issue(s):`, "error");
+          for (const issue of result.issues) {
+            notify(`  ${issue.server}/${issue.file}: ${issue.message}`, "error");
+          }
+          return;
+        }
+
+        case "add": {
+          const parsed = parseAddArgs(rest);
+          if ("error" in parsed) {
+            notify(parsed.error, "error");
+            return;
+          }
+          const result = doAdd(parsed.serverName, {
+            command: parsed.command,
+            args: parsed.commandArgs,
+            url: parsed.url,
+            description: parsed.description,
+            env: Object.keys(parsed.env).length > 0 ? parsed.env : undefined,
+          });
+          if (!result.ok) {
+            notify(`Add failed: ${result.error}`, "error");
+            return;
+          }
+          notify(
+            `Added "${result.serverName}" → ${result.metaPath}. Run /mcp-bridge sync ${result.serverName} -- <command> to populate tools/.`,
+          );
+          return;
+        }
+
+        case "list": {
+          const entries = doList();
+          if (entries.length === 0) {
+            notify("(no servers in registry). Run /mcp-bridge add <server> -- <command> to add one.");
+            return;
+          }
+          const lines: string[] = [];
+          for (const e of entries) {
+            const desc = e.description ? ` — ${e.description}` : "";
+            lines.push(`${e.name}${desc} (${e.toolCount} tools)`);
+            for (const t of e.tools) lines.push(`  - ${t}`);
+          }
+          notify(lines.join("\n"));
+          return;
+        }
+
         case "reload": {
           if (!state) {
-            if (ctx.hasUI) ctx.ui.notify("pi-mcp-bridge not initialized", "error");
+            notify("pi-mcp-bridge not initialized", "error");
             return;
           }
           const previousCount = state.registry.servers.size;
@@ -235,31 +320,22 @@ export default function mcpBridge(pi: ExtensionAPI) {
             ctx.injectSystemContext(result.block);
             injectedBlock = result.block;
           }
-          if (ctx.hasUI) {
-            const total = [...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
-            ctx.ui.notify(
-              `MCP registry reloaded: ${newCount} servers, ${total} tools${newCount !== previousCount ? ` (was ${previousCount})` : ""}`,
-              "info",
-            );
-          }
+          const total = [...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
+          notify(
+            `MCP registry reloaded: ${newCount} servers, ${total} tools${newCount !== previousCount ? ` (was ${previousCount})` : ""}`,
+          );
           return;
         }
+
         case "status":
         case "":
         default: {
           if (!state) {
-            if (ctx.hasUI) ctx.ui.notify("pi-mcp-bridge not initialized", "error");
+            notify("pi-mcp-bridge not initialized", "error");
             return;
           }
           const total = [...state.registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
-          if (ctx.hasUI) {
-            ctx.ui.notify(
-              `pi-mcp-bridge: ${state.registry.servers.size} servers, ${total} tools`,
-              "info",
-            );
-          } else {
-            console.log(`pi-mcp-bridge: ${state.registry.servers.size} servers, ${total} tools`);
-          }
+          notify(`pi-mcp-bridge: ${state.registry.servers.size} servers, ${total} tools`);
           return;
         }
       }

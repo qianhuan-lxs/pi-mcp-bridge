@@ -4,6 +4,26 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-07-19
+
+### Changed — registry management is now Pi-idiomatic
+
+- **`/mcp-bridge` is now the primary path for registry management.** `sync`, `validate`, `add`, `list`, `status`, and `reload` are all subcommands of the existing `/mcp-bridge` slash command inside Pi — no separate binary on PATH, no `command not found` after `pi install`. This matches how `pi-mcp-adapter` (the project we ported from) does it: the slash command is the user-facing surface; the CLI is auxiliary.
+- **Removed the `bin` field from `package.json` and deleted `bin/pi-mcp-bridge.mjs`.** The published package no longer ships a CLI binary; `pi install npm:@qianhuan-lxs/pi-mcp-bridge` followed by `/mcp-bridge ...` inside Pi is the supported flow.
+- **`cli.ts` is now an optional, no-bin wrapper** around the shared `registry-commands.ts` module, kept for scripting / CI. Run it via `npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <cmd>`. It and the slash command share the exact same logic, so the two paths never diverge.
+- **`tsx` moved back to `devDependencies`** — the runtime no longer needs it (no bin shim).
+- README (EN + zh-CN) updated to document `/mcp-bridge sync|validate|add|list|status|reload` as the primary flow.
+
+### Added
+
+- **`registry-commands.ts`** — shared `doSync` / `doValidate` / `doAdd` / `doList` logic used by both the slash command and the optional CLI.
+- **`slash-parser.ts`** — parses `/mcp-bridge sync|add` argument strings (handles `--env K=V`, `--env K`, `--force`, `--url`, `--description`, and the `-- <command> [args...]` separator).
+- **`__tests__/slash-parser.test.ts`** — 9 new tests covering the parser; total suite now 52 tests across 6 files.
+
+### Migration from 0.1.x
+
+If you previously called `pi-mcp-bridge sync ...` from a shell, switch to `/mcp-bridge sync ...` inside Pi. The argument format is identical (`<server> [--env K=V]... [--force] -- <command> [args...]`).
+
 ## [0.1.1] — 2026-07-19
 
 ### Fixed

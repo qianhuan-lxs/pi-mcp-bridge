@@ -76,13 +76,21 @@ Add to your Pi agent config (e.g. `~/.pi/agent.json`):
 
 ### 3. Add an MCP server to the registry
 
-```bash
-# Sync a live MCP server's tools into the registry
-npx pi-mcp-bridge sync filesystem -- npx -y @modelcontextprotocol/server-filesystem /Users/me
-
-# Or add a server by hand and write its tool descriptors yourself
-npx pi-mcp-bridge add github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx -- npx -y @modelcontextprotocol/server-github
 ```
+# Inside Pi — sync a live MCP server's tools into the registry (primary path)
+/mcp-bridge sync filesystem -- npx -y @modelcontextprotocol/server-filesystem /Users/me
+
+# Or add a server stub first, then sync
+/mcp-bridge add github --env GITHUB_PERSONAL_ACCESS_TOKEN -- npx -y @modelcontextprotocol/server-github
+/mcp-bridge sync github
+
+# Validate / list / check status
+/mcp-bridge validate
+/mcp-bridge list
+/mcp-bridge status
+```
+
+> **Why slash commands?** Registry management happens inside Pi via `/mcp-bridge ...` so there's no PATH setup and no separate CLI binary to install. An optional `cli.ts` is still included for scripting — run it via `npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <cmd>`.
 
 This produces:
 

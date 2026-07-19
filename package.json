@@ -1,6 +1,6 @@
 {
   "name": "@qianhuan-lxs/pi-mcp-bridge",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Pi Agent extension that bridges MCP servers to the LLM via two dynamic-context tools (CallMcpTool + FetchMcpResource). Filesystem-is-everything: each MCP server is described by meta.json + tools/*.json, loaded into context on session start.",
   "type": "module",
   "license": "MIT",
@@ -26,9 +26,6 @@
     "llm",
     "bridge"
   ],
-  "bin": {
-    "pi-mcp-bridge": "bin/pi-mcp-bridge.mjs"
-  },
   "main": "./index.ts",
   "exports": {
     ".": "./index.ts",
@@ -46,9 +43,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "build": "tsc",
-    "registry:sync": "tsx ./cli.ts sync",
-    "registry:validate": "tsx ./cli.ts validate"
+    "build": "tsc"
   },
   "pi": {
     "extensions": [
@@ -56,9 +51,10 @@
     ]
   },
   "files": [
-    "bin/pi-mcp-bridge.mjs",
     "index.ts",
     "cli.ts",
+    "registry-commands.ts",
+    "slash-parser.ts",
     "types.ts",
     "state.ts",
     "utils.ts",
@@ -100,7 +96,6 @@
     "@modelcontextprotocol/ext-apps": "^1.2.2",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "open": "^10.2.0",
-    "tsx": "^4.21.0",
     "zod": "^3.25.0 || ^4.0.0"
   },
   "peerDependencies": {
@@ -117,6 +112,7 @@
     "@types/bun": "^1.0.0",
     "@types/node": "^20.0.0",
     "@types/open": "^6.2.1",
+    "tsx": "^4.21.0",
     "typebox": "^1.1.24",
     "typescript": "^5.0.0",
     "vitest": "^3.0.0"
