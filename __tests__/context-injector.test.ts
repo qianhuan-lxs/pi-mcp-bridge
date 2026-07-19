@@ -235,4 +235,23 @@ describe("buildContextBlock", () => {
     const result = buildContextBlock(reg, { contextBudgetTokens: 100000 });
     expect(result.block).not.toMatch(/^> /m);
   });
+
+  it("includes the absolute descriptor folder path per server (Cursor-style)", () => {
+    const reg = makeRegistry([
+      { name: "context7", tools: [{ name: "resolve-library-id", description: "Resolve." }] },
+    ]);
+    const result = buildContextBlock(reg, { contextBudgetTokens: 100000 });
+    expect(result.block).toContain("folder:");
+    expect(result.block).toContain(reg.servers.get("context7")!.directory);
+  });
+
+  it("includes the MANDATORY read-schema-first instruction", () => {
+    const reg = makeRegistry([
+      { name: "fs", tools: [{ name: "read_file", description: "Read a file." }] },
+    ]);
+    const result = buildContextBlock(reg, { contextBudgetTokens: 100000 });
+    expect(result.block).toContain("MANDATORY");
+    expect(result.block).toContain("read");
+    expect(result.block).toContain("NOT optional");
+  });
 });

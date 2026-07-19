@@ -4,6 +4,31 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-07-19
+
+### Changed — Cursor-style system-prompt injection (major)
+
+Reviewed Cursor's actual MCP prompt and aligned our injection mechanism with it. The previous approach (prepend a `user` message via the `context` event) was functional but suboptimal for caching and conversation structure. The new approach appends to the **system prompt** via the `before_agent_start` event — the same mechanism Cursor uses.
+
+- **Injection moved from `context` event → `before_agent_start` event.** `BeforeAgentStartEvent.systemPrompt` exposes the fully-assembled system prompt; returning `{ systemPrompt }` replaces it for the turn. We append our MCP block to it. This is the most cache-friendly injection point: the system prompt is the stable cache prefix, so our block is cached across turns as long as the registry doesn't change. No more `timestamp: Date.now()` user message, no more shifting the message array by one position.
+- **Block format aligned with Cursor:**
+  - Each server header now includes `folder: \`<absolute descriptor path>\`` (Cursor's `folderPath` equivalent) so the model knows where to `ls`/`read` for tool schemas.
+  - Added a `MANDATORY: read the tool's descriptor file before calling CallMcpTool` instruction (Cursor's "MANDATORY - Always Check Tool Schema First"), with a caveat that inline schemas (small registries) let the model skip the read.
+- **Idempotency** now checks `event.systemPrompt` for our `INJECTION_HEADER` instead of scanning the message array.
+
+### Added — `ListMcpResources` tool (Cursor parity)
+
+- Cursor exposes both `ListMcpResources` and `FetchMcpResource`; we previously only had the fetch half. Added `ListMcpResources` (`list-mcp-resources.ts`) — takes a `server`, lazily connects, paginates `client.listResources()`, and returns a compact `uri — name: description (mimeType)` listing. Lets the model discover what resources a server exposes before fetching one.
+
+### Why this matters for caching
+
+- **Before (v0.2.x):** MCP block was a `user` message at index 0. Every turn re-prepended it (with a fresh `timestamp`), shifting all real messages by one position. Content was cacheable on Anthropic (which strips `timestamp`), but the message-array shift was unfriendly to Pi's cache breakpoints and structurally unnatural (two consecutive `user` messages).
+- **After (v0.3.0):** MCP block is appended to the system prompt. System prompt is the canonical stable cache prefix. No message-array shift, no timestamp, no structural oddity. Same content stability, better cache behavior.
+
+### Tests
+
+- 2 new tests covering the per-server `folder:` path and the MANDATORY read-first instruction. Total suite: **64 tests across 6 files, all green**. Typecheck: 0 errors.
+
 ## [0.2.5] — 2026-07-19
 
 ### Added — capture and inject MCP server `instructions` (aligns with Cursor's dynamic context discovery)

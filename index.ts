@@ -14,6 +14,7 @@ import { loadRegistry } from "./registry/registry-loader.ts";
 import { buildContextBlock, INJECTION_HEADER } from "./context-injector.ts";
 import { executeCallMcpTool } from "./call-mcp-tool.ts";
 import { executeFetchMcpResource } from "./fetch-mcp-resource.ts";
+import { executeListMcpResources } from "./list-mcp-resources.ts";
 import { McpServerManager } from "./server-manager.ts";
 import { McpLifecycleManager } from "./lifecycle.ts";
 import { ConsentManager } from "./consent-manager.ts";
@@ -152,33 +153,19 @@ export default function mcpBridge(pi: ExtensionAPI) {
   pi.on("tool_result", event => toolErrorOverride(event.details));
 
   // --- Context injection (REQ-C-001..006) --------------------------------
-  // The `context` event fires before every provider request with the full
-  // AgentMessage[] and lets us return a replacement array. We prepend a
-  // user message containing the compact MCP registry index so the model
-  // knows which servers/tools exist and that it must use CallMcpTool /
-  // FetchMcpResource to invoke them. Idempotent: if a message containing
-  // our HEADER is already present, we skip injection (covers both the
-  // "result not persisted" and "result persisted" cases).
-  pi.on("context", (event, _ctx) => {
+  // Cursor-style: append the compact MCP registry index to the SYSTEM PROMPT
+  // via the `before_agent_start` event (which exposes `event.systemPrompt`
+  // and lets us return a replacement). This is the most cache-friendly
+  // injection point — the system prompt is the stable cache prefix, so our
+  // block is cached across turns as long as the registry doesn't change.
+  // (Previously we prepended a user message via the `context` event, which
+  // shifted the whole message array and was less cache-friendly.)
+  //
+  // Idempotent: if `event.systemPrompt` already contains our HEADER, skip.
+  pi.on("before_agent_start", (event, _ctx) => {
     if (!state) return;
-    const messages = event.messages;
-    if (!Array.isArray(messages) || messages.length === 0) return;
-
-    // Idempotency: skip if our block is already in the conversation.
-    const alreadyInjected = messages.some(m => {
-      if (typeof m !== "object" || m === null) return false;
-      const role = (m as { role?: string }).role;
-      if (role !== "user") return false;
-      const content = (m as { content?: unknown }).content;
-      if (typeof content === "string") return content.includes(INJECTION_HEADER);
-      if (Array.isArray(content)) {
-        return content.some(
-          c => typeof c === "object" && c !== null && typeof (c as { text?: string }).text === "string" && (c as { text: string }).text.includes(INJECTION_HEADER),
-        );
-      }
-      return false;
-    });
-    if (alreadyInjected) return;
+    const existing = event.systemPrompt ?? "";
+    if (existing.includes(INJECTION_HEADER)) return; // already injected this session
 
     let block: string;
     try {
@@ -193,12 +180,9 @@ export default function mcpBridge(pi: ExtensionAPI) {
       return;
     }
 
-    const preamble = {
-      role: "user" as const,
-      content: block,
-      timestamp: Date.now(),
-    };
-    return { messages: [preamble, ...messages] };
+    // Append our block to the system prompt for this turn.
+    const separator = existing.endsWith("\n") ? "\n" : "\n\n";
+    return { systemPrompt: `${existing}${separator}${block}` };
   });
 
   // --- Register CallMcpTool (REQ-W-001..008) -----------------------------
@@ -262,6 +246,29 @@ export default function mcpBridge(pi: ExtensionAPI) {
         };
       }
       return executeFetchMcpResource(state, params, signal);
+    },
+  });
+
+  // --- Register ListMcpResources (Cursor parity) -------------------------
+  (pi.registerTool as (tool: unknown) => unknown)({
+    name: "ListMcpResources",
+    label: "MCP: List resources",
+    description:
+      "List the resources exposed by an MCP server, identified by server name. " +
+      "Returns each resource's URI, name, description, and mimeType. Use this to " +
+      "discover what resources are available before calling FetchMcpResource.",
+    promptSnippet: "List available MCP resources by server",
+    parameters: Type.Object({
+      server: Type.String({ description: "The MCP server identifier" }),
+    }),
+    async execute(_toolCallId: string, params: { server: string }, signal?: AbortSignal) {
+      if (!state) {
+        return {
+          content: [{ type: "text" as const, text: "pi-mcp-bridge not initialized." }],
+          details: { mode: "list-resources", error: "not_initialized" },
+        };
+      }
+      return executeListMcpResources(state, params, signal);
     },
   });
 

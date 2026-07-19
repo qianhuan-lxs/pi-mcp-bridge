@@ -26,10 +26,12 @@ import type { Registry } from "./registry/registry-types.ts";
 import type { BridgeSettings } from "./types.ts";
 
 const HEADER = "## MCP servers (via pi-mcp-bridge)";
+const READ_FIRST_INSTRUCTION =
+  "MANDATORY: Before calling any tool with CallMcpTool, list and read the tool's descriptor file at `<server-folder>/tools/<toolName>.json` to confirm its parameters. This is NOT optional — calling with wrong parameters will fail. (When full input schemas are listed inline below, you may call directly without re-reading.)";
 const FOOTER_WITH_SCHEMAS =
   "Full input schemas are included above. Call CallMcpTool / FetchMcpResource directly with the arguments shown.";
 const FOOTER_READ_FILES = (root: string) =>
-  `Use Pi's read/grep/ls tools on \`${root}/<server>/tools/<tool>.json\` to see the full input schema before calling CallMcpTool.`;
+  `Use Pi's read/grep/ls tools on \`${root}/<server>/tools/<tool>.json\` to see the full input schema before calling CallMcpTool. Each server's descriptor folder is listed next to its name above.`;
 
 const DEFAULT_BUDGET_TOKENS = 4000;
 const CHARS_PER_TOKEN = 4;
@@ -107,7 +109,7 @@ function renderWithSchemas(registry: Registry): string {
   const totalTools = [...registry.servers.values()].reduce((sum, s) => sum + s.tools.size, 0);
   const summary = `${registry.servers.size} servers, ${totalTools} tools — full input schemas included; call CallMcpTool / FetchMcpResource directly.`;
 
-  const lines: string[] = [HEADER, summary];
+  const lines: string[] = [HEADER, summary, READ_FIRST_INSTRUCTION];
 
   for (const server of registry.servers.values()) {
     lines.push(renderServerHeader(server, TINY_DESCRIPTION_CHARS));
@@ -133,7 +135,7 @@ function renderFull(registry: Registry, maxDescChars: number, root: string): str
   const totalTools = [...registry.servers.values()].reduce((sum, s) => sum + s.tools.size, 0);
   const summary = `${registry.servers.size} servers, ${totalTools} tools — use CallMcpTool / FetchMcpResource to invoke; read \`${root}/<server>/tools/<tool>.json\` for full schemas.`;
 
-  const lines: string[] = [HEADER, summary];
+  const lines: string[] = [HEADER, summary, READ_FIRST_INSTRUCTION];
 
   for (const server of registry.servers.values()) {
     lines.push(renderServerHeader(server, maxDescChars));
@@ -157,10 +159,10 @@ function renderKeysOnly(registry: Registry, root: string): string {
   const totalTools = [...registry.servers.values()].reduce((sum, s) => sum + s.tools.size, 0);
   const summary = `${registry.servers.size} servers, ${totalTools} tools — use CallMcpTool / FetchMcpResource to invoke; read \`${root}/<server>/tools/<tool>.json\` for full schemas.`;
 
-  const lines: string[] = [HEADER, summary];
+  const lines: string[] = [HEADER, summary, READ_FIRST_INSTRUCTION];
 
   for (const server of registry.servers.values()) {
-    lines.push(`### ${server.name}`);
+    lines.push(renderServerHeader(server, TINY_DESCRIPTION_CHARS));
     appendInstructions(lines, server);
     if (server.tools.size > 0) {
       lines.push(...[...server.tools.keys()].map(key => `- ${key}`));
@@ -197,14 +199,17 @@ function compactSchema(schema: unknown): string {
   }
 }
 
-/** Render the `### <name> — <description>` header for a server. */
+/** Render the `### <name> — <description>` header for a server, with the
+ * absolute descriptor folder path (Cursor-style) so the model knows where
+ * to `ls`/`read` for tool schemas. */
 function renderServerHeader(
-  server: { name: string; meta: { description?: string } },
+  server: { name: string; meta: { description?: string }; directory: string },
   maxDescChars: number,
 ): string {
-  return server.meta.description
-    ? `### ${server.name} — ${truncate(server.meta.description, maxDescChars)}`
-    : `### ${server.name}`;
+  const desc = server.meta.description
+    ? ` — ${truncate(server.meta.description, maxDescChars)}`
+    : "";
+  return `### ${server.name}${desc}\nfolder: \`${server.directory}\``;
 }
 
 /**
