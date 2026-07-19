@@ -4,6 +4,24 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] — 2026-07-19
+
+### Added — capture and inject MCP server `instructions` (aligns with Cursor's dynamic context discovery)
+
+The MCP protocol's `InitializeResult` includes an optional `instructions` string — the server's own description of its purpose and how to use its tools, explicitly meant to be shown to the LLM. We were ignoring it. Cursor's dynamic-context-discovery approach uses this; we now do too.
+
+- **`syncServer` captures `client.getInstructions()`** at connect time and persists it to `meta.json.instructions`. Re-syncs preserve existing instructions when the server returns none.
+- **`ServerMeta.instructions?: string`** added to the registry type and the `meta.v1.json` JSON Schema.
+- **The context block now renders each server's `instructions` as a markdown blockquote** under the `### <server>` header, in every truncation level except `renderCountsOnly`. Instructions are truncated to 320 chars to bound the budget; the full text remains in `meta.json`.
+
+### Why this matters
+
+Before: the model saw only the tool names/descriptions we wrote to the registry. It never saw the server's own guidance (e.g. "always call resolve-library-id before query-docs"). Now the model gets the server's intended usage pattern directly, which meaningfully improves first-try call accuracy.
+
+### Tests
+
+- 3 new tests covering instructions rendering, long-instruction truncation, and the no-instructions case. Total suite: **62 tests across 6 files, all green**. Typecheck: 0 errors.
+
 ## [0.2.4] — 2026-07-19
 
 ### Changed — hard tool-count limit for inline schema injection

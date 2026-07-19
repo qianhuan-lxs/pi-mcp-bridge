@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { buildContextBlock } from "../context-injector.ts";
 import type { Registry } from "../registry/registry-types.ts";
 
-function makeRegistry(servers: Array<{ name: string; tools?: Array<{ name: string; description?: string }> }>): Registry {
+function makeRegistry(servers: Array<{ name: string; tools?: Array<{ name: string; description?: string }>; instructions?: string; description?: string }>): Registry {
   const reg: Registry = { root: "/tmp/test", servers: new Map(), index: null };
   for (const s of servers) {
     const tools = new Map();
@@ -18,6 +18,8 @@ function makeRegistry(servers: Array<{ name: string; tools?: Array<{ name: strin
       name: s.name,
       meta: {
         name: s.name,
+        description: s.description,
+        instructions: s.instructions,
         transport: { kind: "stdio", command: "x" },
         auth: { kind: "none" },
       },
@@ -192,5 +194,45 @@ describe("buildContextBlock", () => {
       schemaInjectionToolLimit: 0,
     });
     expect(result.schemasIncluded).toBe(false);
+  });
+
+  it("includes the server's MCP instructions as a blockquote under the header", () => {
+    const reg = makeRegistry([
+      {
+        name: "context7",
+        description: "Context7 docs",
+        instructions:
+          "Use this server to fetch up-to-date documentation for libraries. Always call resolve-library-id first, then query-docs.",
+        tools: [{ name: "resolve-library-id", description: "Resolve a library ID." }],
+      },
+    ]);
+    const result = buildContextBlock(reg, { contextBudgetTokens: 100000 });
+    expect(result.block).toContain("> Use this server to fetch up-to-date documentation");
+    expect(result.block).toContain("resolve-library-id first, then query-docs");
+  });
+
+  it("truncates very long instructions to keep the budget bounded", () => {
+    const longInstructions = "x".repeat(1000);
+    const reg = makeRegistry([
+      {
+        name: "s",
+        instructions: longInstructions,
+        tools: [{ name: "t", description: "T." }],
+      },
+    ]);
+    const result = buildContextBlock(reg, { contextBudgetTokens: 100000 });
+    // Instructions are truncated to 320 chars (319 + ellipsis).
+    const blockquoteLine = result.block.split("\n").find(l => l.startsWith("> "));
+    expect(blockquoteLine).toBeDefined();
+    expect(blockquoteLine!.length).toBeLessThan(340);
+    expect(blockquoteLine).toContain("…");
+  });
+
+  it("omits the instructions block when the server provided none", () => {
+    const reg = makeRegistry([
+      { name: "fs", tools: [{ name: "read_file", description: "Read a file." }] },
+    ]);
+    const result = buildContextBlock(reg, { contextBudgetTokens: 100000 });
+    expect(result.block).not.toMatch(/^> /m);
   });
 });

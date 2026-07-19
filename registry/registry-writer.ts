@@ -102,6 +102,11 @@ export async function syncServer(
 
   mkdirSync(toolsDir, { recursive: true });
 
+  // Capture the server's instructions (from the initialize handshake).
+  // This is the MCP protocol's designated server→LLM communication
+  // channel; we persist it in meta.json and inject it into the context.
+  const instructions = client.getInstructions();
+
   // Discover tools + resources (paginated).
   const tools = await fetchAllTools(client);
   const resources = await fetchAllResources(client);
@@ -146,12 +151,18 @@ export async function syncServer(
 
   // Update meta.json (preserve user-edited fields, update sync metadata).
   const meta: ServerMeta = existingMeta
-    ? { ...existingMeta, syncedAt: new Date().toISOString(), syncedFrom: "live-server" }
+    ? {
+        ...existingMeta,
+        syncedAt: new Date().toISOString(),
+        syncedFrom: "live-server",
+        instructions: instructions ?? existingMeta.instructions,
+      }
     : {
         $schema: "https://pi-mcp-bridge.dev/schemas/meta.v1.json",
         name: serverName,
         transport: { kind: "stdio", command: "" }, // caller should overwrite
         auth: { kind: "none" },
+        instructions: instructions ?? undefined,
         syncedAt: new Date().toISOString(),
         syncedFrom: "live-server",
       };

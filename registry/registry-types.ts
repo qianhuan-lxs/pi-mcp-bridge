@@ -61,6 +61,13 @@ export interface ServerMeta {
   name: string;
   version?: string;
   description?: string;
+  /**
+   * Instructions returned by the MCP server in its `initialize` response.
+   * Captured at sync time and injected into the agent context so the model
+   * understands the server's purpose and how to use its tools. This is the
+   * MCP protocol's designated mechanism for server→LLM communication.
+   */
+  instructions?: string;
   transport: RegistryTransport;
   auth: RegistryAuth;
   lifecycle?: RegistryLifecycle;

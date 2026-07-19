@@ -110,10 +110,8 @@ function renderWithSchemas(registry: Registry): string {
   const lines: string[] = [HEADER, summary];
 
   for (const server of registry.servers.values()) {
-    const title = server.meta.description
-      ? `### ${server.name} — ${truncate(server.meta.description, TINY_DESCRIPTION_CHARS)}`
-      : `### ${server.name}`;
-    lines.push(title);
+    lines.push(renderServerHeader(server, TINY_DESCRIPTION_CHARS));
+    appendInstructions(lines, server);
 
     if (server.tools.size > 0) {
       for (const [key, def] of server.tools) {
@@ -138,10 +136,8 @@ function renderFull(registry: Registry, maxDescChars: number, root: string): str
   const lines: string[] = [HEADER, summary];
 
   for (const server of registry.servers.values()) {
-    const title = server.meta.description
-      ? `### ${server.name} — ${truncate(server.meta.description, maxDescChars)}`
-      : `### ${server.name}`;
-    lines.push(title);
+    lines.push(renderServerHeader(server, maxDescChars));
+    appendInstructions(lines, server);
 
     if (server.tools.size > 0) {
       for (const [key, def] of server.tools) {
@@ -165,6 +161,7 @@ function renderKeysOnly(registry: Registry, root: string): string {
 
   for (const server of registry.servers.values()) {
     lines.push(`### ${server.name}`);
+    appendInstructions(lines, server);
     if (server.tools.size > 0) {
       lines.push(...[...server.tools.keys()].map(key => `- ${key}`));
     } else {
@@ -197,6 +194,36 @@ function compactSchema(schema: unknown): string {
     return JSON.stringify(schema);
   } catch {
     return "{}";
+  }
+}
+
+/** Render the `### <name> — <description>` header for a server. */
+function renderServerHeader(
+  server: { name: string; meta: { description?: string } },
+  maxDescChars: number,
+): string {
+  return server.meta.description
+    ? `### ${server.name} — ${truncate(server.meta.description, maxDescChars)}`
+    : `### ${server.name}`;
+}
+
+/**
+ * Append the server's MCP `instructions` (captured at sync time) as a
+ * blockquote under the server header. Truncated to a generous length
+ * (320 chars) so the model gets the server's purpose without blowing
+ * the budget; the full text is in `meta.json` if needed.
+ */
+function appendInstructions(
+  lines: string[],
+  server: { meta: { instructions?: string } },
+): void {
+  const raw = server.meta.instructions?.trim();
+  if (!raw) return;
+  const INSTRUCTIONS_BUDGET = 320;
+  const text = truncate(raw, INSTRUCTIONS_BUDGET);
+  // Render as a markdown blockquote, one line per source line.
+  for (const line of text.split("\n")) {
+    lines.push(`> ${line}`);
   }
 }
 
