@@ -59,6 +59,10 @@ export function loadBridgeSettings(): BridgeSettings {
     outputGuard,
     contextBudgetTokens:
       positiveInt(parsed.contextBudgetTokens) ?? DEFAULT_SETTINGS.contextBudgetTokens!,
+    schemaInjectionToolLimit:
+      parsed.schemaInjectionToolLimit === 0
+        ? 0
+        : positiveInt(parsed.schemaInjectionToolLimit) ?? undefined,
     uiViewer: parsed.uiViewer ?? DEFAULT_SETTINGS.uiViewer!,
   };
 }

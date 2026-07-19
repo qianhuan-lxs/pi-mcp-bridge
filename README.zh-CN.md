@@ -1,6 +1,6 @@
 # pi-mcp-bridge
 
-> 一个 [Pi Agent](https://pi.dev/docs/latest/extensions) 扩展，把任意 [Model Context Protocol](https://modelcontextprotocol.io/)（MCP）服务器桥接进 Pi，**只暴露两个 LLM 可调用的工具** —— `CallMcpTool` 与 `FetchMcpResource` —— 并通过一个**以文件系统为单一事实源的注册表**让上下文窗口保持廉价。
+> 一个 [Pi Agent](https://pi.dev/docs/latest/extensions) 扩展，把任意 [Model Context Protocol](https://modelcontextprotocol.io/)（MCP）服务器桥接进 Pi，**只暴露三个 LLM 可调用的工具** —— `CallMcpTool`、`FetchMcpResource`、`ListMcpResources` —— 并通过一个**以文件系统为单一事实源的注册表**与**Cursor 风格的系统提示注入**让上下文窗口保持廉价且缓存友好。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/Node-%3E%3D20.19-green.svg)](./package.json)
@@ -12,24 +12,27 @@
 
 ## 为什么做这个
 
-Cursor 的 [Dynamic Context Discovery](https://cursor.com/cn/blog/dynamic-context-discovery) 一文提出了一个尖锐的观察：把每个 MCP 工具都直接暴露给 LLM，会让系统提示膨胀、烧光上下文。解法是**只暴露两个通用工具**，让模型按需从一份紧凑、可发现的注册表里读取具体工具的 schema。
+Cursor 的 [Dynamic Context Discovery](https://cursor.com/cn/blog/dynamic-context-discovery) 一文提出了一个尖锐的观察：把每个 MCP 工具都直接暴露给 LLM，会让系统提示膨胀、烧光上下文。解法是**只暴露少数通用工具**，让模型按需从一份紧凑、可发现的注册表里读取具体工具的 schema。
 
-`pi-mcp-bridge` 把这个模式带到 Pi Agent：
+`pi-mcp-bridge` 把这个模式带到 Pi Agent —— 并对齐 Cursor 的实际做法：
 
 - **`CallMcpTool`** —— 通过 `server` + `toolName` + `arguments` 调用任意 MCP 工具。
 - **`FetchMcpResource`** —— 通过 `server` + `uri` 读取任意 MCP 资源，可选保存到磁盘。
+- **`ListMcpResources`** —— 列出某个服务器暴露的资源（先发现再读取）。
 - **Filesystem is everything** —— 每个 MCP 服务器由 `registry/<server>/meta.json` + `registry/<server>/tools/<tool>.json` 描述。模型读取这些文件来学习*如何*调用工具，再用正确参数调用 `CallMcpTool`。
-- **Cheap context** —— 在 `session_start` 时，把注册表的一份紧凑 Markdown 索引注入系统提示；完整工具 schema 留在磁盘上，模型需要时再读。
+- **Cursor 风格的系统提示注入** —— 每轮对话时，把注册表的一份紧凑 Markdown 索引**追加到系统提示**（经 `before_agent_start` 事件，不是插 user message）。系统提示是最稳定的缓存前缀，所以只要注册表不变，这块就跨轮缓存。小注册表（默认 ≤ 30 个工具）会内联完整 `inputSchema`，模型一次就能调对；大注册表退化到名字 + 描述，模型按需读 schema 文件。
+- **捕获服务器 `instructions`** —— MCP 协议 `InitializeResult.instructions`（服务器自己声明的用途与用法）在 sync 时被抓取、持久化到 `meta.json`，并作为 blockquote 渲染在每个服务器标题下 —— 模型能看到服务器自己的用法指引，而不只是我们写的工具描述。
 - **Lazy by default** —— MCP 服务器只在工具被调用时才连接，空闲超过可配置阈值后自动断开。
-- **No vendor lock-in** —— 注册表是纯 JSON。可以 `git diff`、手改，或用 `pi-mcp-bridge sync` 从一个在线 MCP 服务器生成。
+- **No vendor lock-in** —— 注册表是纯 JSON。可以 `git diff`、手改，或用 `/mcp-bridge sync` 从一个在线 MCP 服务器生成。
 
 ## 架构（60 秒速览）
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  Pi Agent (LLM)                                                  │
-│    system prompt  ◀──  注入的上下文块（紧凑索引）                  │
-│    tools: [CallMcpTool, FetchMcpResource]                        │
+│    system prompt  ◀──  经 before_agent_start 追加的 MCP 注册表块   │
+│                       （Cursor 风格）                              │
+│    tools: [CallMcpTool, FetchMcpResource, ListMcpResources]       │
 └───────────────┬──────────────────────────────────────────────────┘
                 │ CallMcpTool({server, toolName, arguments})
                 ▼
@@ -58,9 +61,9 @@ Cursor 的 [Dynamic Context Discovery](https://cursor.com/cn/blog/dynamic-contex
 pi install npm:@qianhuan-lxs/pi-mcp-bridge
 ```
 
-这会把包装到 `~/.pi/agent/npm/` 下,并通过包里的 `pi.extensions` manifest 自动注册扩展 —— 不用手动改配置。
+这会把包装到 `~/.pi/agent/npm/` 下，并通过包里的 `pi.extensions` manifest 自动注册扩展 —— 不用手动改配置。
 
-> **注意:** `pi install` 需要 Pi v0.74+。如果你用的是旧版 Pi,或想手动管理,把 `"@qianhuan-lxs/pi-mcp-bridge"` 加到 `~/.pi/agent/settings.json` 的 `packages` 数组里即可。
+> **注意：** `pi install` 需要 Pi v0.74+。如果你用的是旧版 Pi，或想手动管理，把 `"@qianhuan-lxs/pi-mcp-bridge"` 加到 `~/.pi/agent/settings.json` 的 `packages` 数组里即可。
 
 ### 2. 注册扩展
 
@@ -95,7 +98,7 @@ pi install npm:@qianhuan-lxs/pi-mcp-bridge
 会生成：
 
 ```
-~/.pi/agent/mcp-bridge/registry/
+~/.pi/agent/mcp-registry/
   filesystem/
     meta.json
     tools/
@@ -113,17 +116,18 @@ pi install npm:@qianhuan-lxs/pi-mcp-bridge
 
 模型会：
 
-1. 从系统提示里读取注入的注册表索引。
-2. 读取 `registry/filesystem/tools/list_files.json` 学习 schema。
-3. 调用 `CallMcpTool({server:"filesystem", toolName:"list_files", arguments:{path:"/Users/me"}})`。
-4. 收到结果（过大时截断，完整内容溢出到临时文件）。
+1. 从**系统提示**里读取 MCP 注册表块（经 `before_agent_start` 注入）。小注册表时完整 `inputSchema` 已内联；大注册表时看到服务器的 `folder:` 路径，按需读 `<folder>/tools/<tool>.json`。
+2. 调用 `CallMcpTool({server:"filesystem", toolName:"list_files", arguments:{path:"/Users/me"}})`。
+3. 收到结果（过大时截断，完整内容溢出到临时文件）。
+
+要发现资源，先用 `ListMcpResources({server:"..."})`，再 `FetchMcpResource({server, uri})`。
 
 ## 注册表布局
 
 ```
-registry/
+~/.pi/agent/mcp-registry/
   <server>/
-    meta.json          # 服务器配置：command、env、transport、超时
+    meta.json          # 服务器配置：command、env、transport、超时、instructions
     tools/
       <tool>.json      # 每个工具一个文件：name、description、inputSchema
   index.json           # 聚合索引（由 sync / validate 重建）
@@ -134,6 +138,8 @@ registry/
 ```json
 {
   "name": "filesystem",
+  "description": "Filesystem MCP server",
+  "instructions": "Use this server to read and write files. Always pass absolute paths.",
   "transport": {
     "kind": "stdio",
     "command": "npx",
@@ -141,9 +147,13 @@ registry/
     "env": {}
   },
   "auth": { "kind": "none" },
-  "lifecycle": { "mode": "lazy", "idleTimeoutMinutes": 10 }
+  "lifecycle": { "mode": "lazy", "idleTimeoutMinutes": 10 },
+  "syncedFrom": "live-server",
+  "syncedAt": "2026-07-19T06:00:00.000Z"
 }
 ```
+
+> `instructions` 在 `/mcp-bridge sync` 时自动从 MCP 服务器的 `initialize` 响应抓取。也可以手改。
 
 `tools/read_file.json` 示例：
 
@@ -161,35 +171,76 @@ registry/
 
 完整 schema 参考：[`docs/config-format.zh-CN.md`](./docs/config-format.zh-CN.md)。
 
-## 命令行
+## 上下文注入（模型怎么知道 MCP）
+
+注入块在每轮对话时经 `before_agent_start` 事件**追加到系统提示**。它走截断阶梯（从最详细到最简略，第一个能塞进 token budget 的就用）：
+
+| 级别 | 内容 | 何时使用 |
+|------|------|----------|
+| 1. `renderWithSchemas` | 工具名 + 描述 + **完整 `inputSchema` JSON 内联** + 服务器 `instructions` | 注册表 ≤ `schemaInjectionToolLimit` 个工具（默认 30）且塞得下 budget |
+| 2. `renderFull(80)` | 工具名 + 80 字描述 + 服务器 `instructions` | 级别 1 跳过/溢出 |
+| 3. `renderFull(40)` | 工具名 + 40 字描述 + `instructions` | 级别 2 溢出 |
+| 4. `renderKeysOnly` | 仅工具键 + `instructions` | 级别 3 溢出 |
+| 5. `renderCountsOnly` | 服务器名 + 工具计数 | 级别 4 溢出 |
+
+每个服务器标题带 `folder: <绝对描述符路径>`，模型知道去哪 `ls`/`read` 拿 schema。块里还有一条 `MANDATORY: 调 CallMcpTool 前先读工具描述符文件` 的指令（内联 schema 时允许跳过读文件）。
+
+**为什么注入系统提示？** 这是最缓存友好的注入点 —— 系统提示是最稳定的缓存前缀，只要注册表不变就跨轮缓存。（早期版本经 `context` 事件插 user message，能用但会挪动消息数组、缓存不友好。v0.3.0 改用 `before_agent_start` 对齐 Cursor。）
+
+## 斜杠命令
+
+`/mcp-bridge` 是注册表管理的主接口（无单独 CLI 二进制，无需配 PATH）：
+
+```
+/mcp-bridge sync <server> [--env K=V]... [--force] -- <command> [args...]
+    连接一个在线 MCP 服务器，抓取它的 instructions + 工具/资源，
+    把 meta.json + tools/*.json 写进注册表。自动 reload 下一轮的上下文。
+
+/mcp-bridge add <server> [--env K=V]... -- <command> [args...]
+    添加一个服务器存根（只写 meta.json）；之后用 `sync` 抓取工具。
+
+/mcp-bridge add <server> --url <url> [--description <text>]
+    添加一个 HTTP 传输的服务器存根。
+
+/mcp-bridge validate
+    按 JSON Schema 校验注册表，重建 index.json。
+
+/mcp-bridge list
+    列出注册表里所有服务器及其工具。
+
+/mcp-bridge status
+    查看当前加载了多少服务器和工具。
+
+/mcp-bridge reload
+    从磁盘重读注册表，刷新 agent 上下文。
+```
+
+可选的 `cli.ts` 包装同一套逻辑，供脚本/CI 使用：
 
 ```bash
-npx pi-mcp-bridge <command>
-
-Commands:
-  sync <server> -- <command>     连接一个在线 MCP 服务器，把它的
-                                 meta.json + tools/*.json 写进注册表。
-  validate                       按照JSON Schema 校验注册表，
-                                 并重建 index.json。
-  add <server> [--env K=V]... -- <command>
-                                 添加一个服务器桩（只写 meta.json）；
-                                 之后用 `sync` 抓取它的工具描述。
-  list                           列出注册表里所有服务器及其工具。
+npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <sync|add|validate|list> ...
 ```
 
 ## 配置
 
-`~/.pi/agent/mcp-bridge.json`：
+`~/.pi/agent/mcp-bridge.json`（所有字段可选，默认值如下）：
 
 ```jsonc
 {
-  "registryRoot": "~/.pi/agent/mcp-bridge/registry",  // 默认值
-  "idleTimeout": 10,                                  // 秒，默认 10
-  "requestTimeoutMs": 60000,                          // 默认 60s
-  "contextBudgetChars": 6000,                          // 注入索引的大小
-  "uiViewer": "auto"                                   // "auto" | "browser" | "glimpse"
+  "idleTimeout": 10,                  // 分钟，默认 10，0 表示禁用
+  "requestTimeoutMs": 0,             // 毫秒，0 = 用 SDK 默认值
+  "outputGuard": true,               // 截断过大的工具输出
+  "contextBudgetTokens": 4000,       // 注入系统提示块的最大 token 数
+  "schemaInjectionToolLimit": 30,    // 工具数 > N 的注册表跳过内联 schema
+                                     // 0 = 完全禁用内联 schema
+  "uiViewer": "auto"                 // "auto" | "browser" | "glimpse"
 }
 ```
+
+环境变量覆盖：
+- `PI_CODING_AGENT_DIR` —— 覆盖 Pi agent 目录（默认 `~/.pi/agent`）。
+- `PI_MCP_BRIDGE_REGISTRY` —— 覆盖注册表根目录（默认 `<agent dir>/mcp-registry`）。
+- `MCP_OUTPUT_GUARD=0` —— 禁用输出守卫。
 
 ## OpenSpec
 
@@ -203,8 +254,8 @@ Commands:
 
 | 阶段 | 范围 | 状态 |
 |------|------|------|
-| 1 — 核心 | 两个工具、文件系统注册表、上下文注入、懒连接、输出守卫、UI 集成 | ✅ 本次发布 |
-| 2 — OAuth | OAuth 2.1 流程、动态客户端注册、PKCE | 📋 已提案 |
+| 1 — 核心 | 三个工具、文件系统注册表、系统提示注入、懒连接、输出守卫、UI 集成、服务器 `instructions` 抓取 | ✅ 本次发布 |
+| 2 — OAuth | OAuth 2.1 流程、动态客户端注册、PKCE、`mcp_auth` 工具 | 📋 已提案 |
 | 3 — Sampling | 服务器发起的 `sampling/createMessage` | 📋 已提案 |
 | 4 — Elicitation | 服务器发起的 `elicitation/create` | 📋 已提案 |
 
