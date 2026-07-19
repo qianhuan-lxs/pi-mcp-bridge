@@ -1,0 +1,113 @@
+{
+  "name": "pi-mcp-bridge",
+  "version": "0.1.0",
+  "description": "Pi Agent extension that bridges MCP servers to the LLM via two dynamic-context tools (CallMcpTool + FetchMcpResource). Filesystem-is-everything: each MCP server is described by meta.json + tools/*.json, loaded into context on session start.",
+  "type": "module",
+  "license": "MIT",
+  "author": "qianhuan-lxs",
+  "homepage": "https://github.com/qianhuan-lxs/pi-mcp-bridge",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qianhuan-lxs/pi-mcp-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/qianhuan-lxs/pi-mcp-bridge/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "coding-agent",
+    "extension",
+    "dynamic-context",
+    "cursor",
+    "llm",
+    "bridge"
+  ],
+  "bin": {
+    "pi-mcp-bridge": "./dist/cli.js"
+  },
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./types": "./types.ts",
+    "./registry": "./registry/registry-loader.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "registry:sync": "tsx ./cli.ts sync",
+    "registry:validate": "tsx ./cli.ts validate"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "files": [
+    "index.ts",
+    "cli.ts",
+    "types.ts",
+    "state.ts",
+    "utils.ts",
+    "logger.ts",
+    "errors.ts",
+    "abort.ts",
+    "agent-dir.ts",
+    "error-signal.ts",
+    "config.ts",
+    "server-manager.ts",
+    "lifecycle.ts",
+    "metadata-cache.ts",
+    "tool-metadata.ts",
+    "resource-tools.ts",
+    "npx-resolver.ts",
+    "tool-result-renderer.ts",
+    "mcp-output-guard.ts",
+    "tool-registrar.ts",
+    "consent-manager.ts",
+    "ui-server.ts",
+    "ui-session.ts",
+    "ui-resource-handler.ts",
+    "ui-stream-types.ts",
+    "host-html-template.ts",
+    "glimpse-ui.ts",
+    "app-bridge.bundle.js",
+    "call-mcp-tool.ts",
+    "fetch-mcp-resource.ts",
+    "registry/registry-loader.ts",
+    "registry/registry-writer.ts",
+    "registry/registry-types.ts",
+    "context-injector.ts",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.74.0",
+    "@earendil-works/pi-tui": "^0.74.0",
+    "@modelcontextprotocol/ext-apps": "^1.2.2",
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "open": "^10.2.0",
+    "typebox": "^1.1.24",
+    "zod": "^3.25.0 || ^4.0.0"
+  },
+  "peerDependencies": {
+    "zod": "^3.25.0 || ^4.0.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.79.1",
+    "@types/bun": "^1.0.0",
+    "@types/node": "^20.0.0",
+    "@types/open": "^6.2.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  }
+}
