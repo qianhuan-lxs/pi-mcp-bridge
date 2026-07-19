@@ -6,7 +6,7 @@
 [![Node](https://img.shields.io/badge/Node-%3E%3D20.19-green.svg)](./package.json)
 [![Specs: OpenSpec](https://img.shields.io/badge/OpenSpec-phase--1--core-orange)](./openspec/)
 
-**English** · [简体中文](./README.zh-CN.md)
+[English](./README.md) · **简体中文**
 
 ---
 
