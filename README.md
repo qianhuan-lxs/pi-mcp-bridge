@@ -79,11 +79,13 @@ Add to your Pi agent config (e.g. `~/.pi/agent.json`):
 
 ### 3. Add an MCP server to the registry
 
+#### stdio — context7 (library docs lookup)
+
 ```
 # Inside Pi — sync a live MCP server's tools into the registry (primary path)
-/mcp-bridge sync filesystem -- npx -y @modelcontextprotocol/server-filesystem /Users/me
+/mcp-bridge sync context7 -- npx -y @upstash/context7-mcp
 
-# Or add a server stub first, then sync
+# Or add a server stub first (with an env var), then sync
 /mcp-bridge add github --env GITHUB_PERSONAL_ACCESS_TOKEN -- npx -y @modelcontextprotocol/server-github
 /mcp-bridge sync github
 
@@ -93,31 +95,68 @@ Add to your Pi agent config (e.g. `~/.pi/agent.json`):
 /mcp-bridge status
 ```
 
+#### Streamable HTTP (modern MCP HTTP transport)
+
+Start the server in a separate terminal:
+
+```bash
+npx -y @modelcontextprotocol/server-everything streamableHttp
+# serves at http://localhost:3000/mcp
+```
+
+Then in Pi:
+
+```
+/mcp-bridge add everything-http --url http://localhost:3000/mcp --description "Everything MCP (Streamable HTTP)"
+/mcp-bridge sync everything-http
+```
+
+#### SSE (legacy HTTP transport)
+
+Start the server in a separate terminal:
+
+```bash
+npx -y @modelcontextprotocol/server-everything sse
+# serves at http://localhost:3001/sse
+```
+
+Then in Pi:
+
+```
+/mcp-bridge add everything-sse --url http://localhost:3001/sse --description "Everything MCP (SSE)"
+/mcp-bridge sync everything-sse
+```
+
+> **Transport auto-detection:** for `kind: "http"` servers, `/mcp-bridge sync` and lazy-connect both probe **StreamableHTTP first** and fall back to **SSE** automatically — you don't pick the transport explicitly; the URL is enough.
+
 > **Why slash commands?** Registry management happens inside Pi via `/mcp-bridge ...` so there's no PATH setup and no separate CLI binary to install. An optional `cli.ts` is still included for scripting — run it via `npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <cmd>`.
 
 This produces:
 
 ```
 ~/.pi/agent/mcp-registry/
-  filesystem/
+  context7/
     meta.json
     tools/
-      read_file.json
-      list_files.json
+      resolve-library-id.json
+      query-docs.json
       ...
+  everything-http/
+    meta.json
+    tools/...
   index.json
 ```
 
 ### 4. Restart Pi and ask
 
 ```
-> list the files in my home folder using the filesystem MCP
+> use context7 to look up the latest AgentScope documentation
 ```
 
 The agent will:
 
 1. Read the MCP registry block from its **system prompt** (injected via `before_agent_start`). For small registries the full `inputSchema` is already inline; for large ones it sees the server's `folder:` path and reads `<folder>/tools/<tool>.json` on demand.
-2. Call `CallMcpTool({server:"filesystem", toolName:"list_files", arguments:{path:"/Users/me"}})`.
+2. Call `CallMcpTool({server:"context7", toolName:"resolve-library-id", arguments:{...}})`, then `CallMcpTool({server:"context7", toolName:"query-docs", arguments:{...}})`.
 3. Receive the result (truncated if large, with a temp-file spill for the full content).
 
 To discover resources first, use `ListMcpResources({server:"..."})`, then `FetchMcpResource({server, uri})`.
@@ -133,17 +172,17 @@ To discover resources first, use `ListMcpResources({server:"..."})`, then `Fetch
   index.json           # aggregate index (rebuilt by `sync` / `validate`)
 ```
 
-`meta.json` example:
+`meta.json` example (stdio — context7):
 
 ```json
 {
-  "name": "filesystem",
-  "description": "Filesystem MCP server",
-  "instructions": "Use this server to read and write files. Always pass absolute paths.",
+  "name": "context7",
+  "description": "Context7 documentation MCP server",
+  "instructions": "Use this server to fetch up-to-date documentation for libraries. Always call resolve-library-id first, then query-docs.",
   "transport": {
     "kind": "stdio",
     "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me"],
+    "args": ["-y", "@upstash/context7-mcp"],
     "env": {}
   },
   "auth": { "kind": "none" },
@@ -153,18 +192,39 @@ To discover resources first, use `ListMcpResources({server:"..."})`, then `Fetch
 }
 ```
 
-> `instructions` is captured automatically from the MCP server's `initialize` response during `/mcp-bridge sync`. You can also hand-edit it.
-
-`tools/read_file.json` example:
+`meta.json` example (HTTP — Streamable HTTP or SSE, same shape):
 
 ```json
 {
-  "name": "read_file",
-  "description": "Read a file from the filesystem.",
+  "name": "everything-http",
+  "description": "Everything MCP (Streamable HTTP)",
+  "transport": {
+    "kind": "http",
+    "url": "http://localhost:3000/mcp",
+    "headers": {}
+  },
+  "auth": { "kind": "none" },
+  "lifecycle": { "mode": "lazy", "idleTimeoutMinutes": 10 },
+  "syncedFrom": "live-server",
+  "syncedAt": "2026-07-19T06:00:00.000Z"
+}
+```
+
+> `instructions` is captured automatically from the MCP server's `initialize` response during `/mcp-bridge sync`. You can also hand-edit it. For HTTP servers, the transport kind is just `"http"` — sync and lazy-connect auto-probe StreamableHTTP then fall back to SSE.
+
+`tools/resolve-library-id.json` example:
+
+```json
+{
+  "name": "resolve-library-id",
+  "description": "Resolve a Context7-compatible library ID from a library name.",
   "inputSchema": {
     "type": "object",
-    "properties": { "path": { "type": "string" } },
-    "required": ["path"]
+    "properties": {
+      "query": { "type": "string" },
+      "libraryName": { "type": "string" }
+    },
+    "required": ["query", "libraryName"]
   }
 }
 ```

@@ -4,6 +4,25 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-07-19
+
+### Added — HTTP transport support for `/mcp-bridge sync`
+
+- **`/mcp-bridge sync` now works with HTTP servers** (Streamable HTTP and SSE), not just stdio. Previously `doSync` returned `"HTTP transport sync not implemented in Phase 1 — use stdio."` for any `kind: "http"` server; HTTP servers could be added as stubs but never synced, so their `tools/` stayed empty. Sync now creates a `StreamableHTTPClientTransport` (probing first) and falls back to `SSEClientTransport` — the same auto-detection logic `McpServerManager` uses for lazy-connect.
+- **`/mcp-bridge sync <server>` without a `-- <command>` is now valid** for HTTP servers added via `--url`. The slash parser no longer requires a command after `--`; if absent, sync proceeds against the existing `meta.json` URL. (For stdio servers with no existing meta and no command, sync still errors with a helpful message.)
+- `cli.ts` sync path updated to match (command after `--` now optional).
+
+### Changed — README examples
+
+- README (EN + zh-CN) examples switched from `filesystem` to **`context7`** (the server the maintainer actually tests with).
+- Added **Streamable HTTP** and **SSE** examples using `@modelcontextprotocol/server-everything` (run in a separate terminal, then `/mcp-bridge add --url ... && /mcp-bridge sync ...`).
+- Added a second `meta.json` example showing the `kind: "http"` shape.
+- Documented the StreamableHTTP-first-SSE-fallback auto-detection.
+
+### Tests
+
+- Updated slash-parser test for the new optional-command behavior. Total suite: **64 tests across 6 files, all green**. Typecheck: 0 errors.
+
 ## [0.3.0] — 2026-07-19
 
 ### Changed — Cursor-style system-prompt injection (major)

@@ -79,11 +79,13 @@ pi install npm:@qianhuan-lxs/pi-mcp-bridge
 
 ### 3. 往注册表里添加一个 MCP 服务器
 
+#### stdio —— context7（库文档查询）
+
 ```
 # 在 Pi 内部 —— 将一个真实 MCP 服务器的工具同步到注册表（主路径）
-/mcp-bridge sync filesystem -- npx -y @modelcontextprotocol/server-filesystem /Users/me
+/mcp-bridge sync context7 -- npx -y @upstash/context7-mcp
 
-# 或者先添加一个服务器存根，再同步
+# 或者先添加一个服务器存根（带环境变量），再同步
 /mcp-bridge add github --env GITHUB_PERSONAL_ACCESS_TOKEN -- npx -y @modelcontextprotocol/server-github
 /mcp-bridge sync github
 
@@ -93,31 +95,68 @@ pi install npm:@qianhuan-lxs/pi-mcp-bridge
 /mcp-bridge status
 ```
 
+#### Streamable HTTP（现代 MCP HTTP 传输）
+
+在另一个终端启动服务器：
+
+```bash
+npx -y @modelcontextprotocol/server-everything streamableHttp
+# 服务在 http://localhost:3000/mcp
+```
+
+然后在 Pi 里：
+
+```
+/mcp-bridge add everything-http --url http://localhost:3000/mcp --description "Everything MCP (Streamable HTTP)"
+/mcp-bridge sync everything-http
+```
+
+#### SSE（旧版 HTTP 传输）
+
+在另一个终端启动服务器：
+
+```bash
+npx -y @modelcontextprotocol/server-everything sse
+# 服务在 http://localhost:3001/sse
+```
+
+然后在 Pi 里：
+
+```
+/mcp-bridge add everything-sse --url http://localhost:3001/sse --description "Everything MCP (SSE)"
+/mcp-bridge sync everything-sse
+```
+
+> **传输自动探测：** 对 `kind: "http"` 的服务器，`/mcp-bridge sync` 和懒连接都会**先试 StreamableHTTP，失败回退到 SSE** —— 不用手选传输方式，给 URL 就行。
+
 > **为什么用斜杠命令？** 注册表管理在 Pi 内通过 `/mcp-bridge ...` 完成，无需配置 PATH，也无需安装单独的 CLI 二进制。仍保留可选的 `cli.ts` 供脚本化使用 —— 通过 `npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <cmd>` 调用。
 
 会生成：
 
 ```
 ~/.pi/agent/mcp-registry/
-  filesystem/
+  context7/
     meta.json
     tools/
-      read_file.json
-      list_files.json
+      resolve-library-id.json
+      query-docs.json
       ...
+  everything-http/
+    meta.json
+    tools/...
   index.json
 ```
 
 ### 4. 重启 Pi 并提问
 
 ```
-> 用 filesystem MCP 列出我 home 目录下的文件
+> 用 context7 查一下 AgentScope 的最新文档
 ```
 
 模型会：
 
 1. 从**系统提示**里读取 MCP 注册表块（经 `before_agent_start` 注入）。小注册表时完整 `inputSchema` 已内联；大注册表时看到服务器的 `folder:` 路径，按需读 `<folder>/tools/<tool>.json`。
-2. 调用 `CallMcpTool({server:"filesystem", toolName:"list_files", arguments:{path:"/Users/me"}})`。
+2. 调用 `CallMcpTool({server:"context7", toolName:"resolve-library-id", arguments:{...}})`，再调 `CallMcpTool({server:"context7", toolName:"query-docs", arguments:{...}})`。
 3. 收到结果（过大时截断，完整内容溢出到临时文件）。
 
 要发现资源，先用 `ListMcpResources({server:"..."})`，再 `FetchMcpResource({server, uri})`。
@@ -133,17 +172,17 @@ pi install npm:@qianhuan-lxs/pi-mcp-bridge
   index.json           # 聚合索引（由 sync / validate 重建）
 ```
 
-`meta.json` 示例：
+`meta.json` 示例（stdio —— context7）：
 
 ```json
 {
-  "name": "filesystem",
-  "description": "Filesystem MCP server",
-  "instructions": "Use this server to read and write files. Always pass absolute paths.",
+  "name": "context7",
+  "description": "Context7 documentation MCP server",
+  "instructions": "Use this server to fetch up-to-date documentation for libraries. Always call resolve-library-id first, then query-docs.",
   "transport": {
     "kind": "stdio",
     "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me"],
+    "args": ["-y", "@upstash/context7-mcp"],
     "env": {}
   },
   "auth": { "kind": "none" },
@@ -153,18 +192,39 @@ pi install npm:@qianhuan-lxs/pi-mcp-bridge
 }
 ```
 
-> `instructions` 在 `/mcp-bridge sync` 时自动从 MCP 服务器的 `initialize` 响应抓取。也可以手改。
-
-`tools/read_file.json` 示例：
+`meta.json` 示例（HTTP —— Streamable HTTP 或 SSE，结构相同）：
 
 ```json
 {
-  "name": "read_file",
-  "description": "Read a file from the filesystem.",
+  "name": "everything-http",
+  "description": "Everything MCP (Streamable HTTP)",
+  "transport": {
+    "kind": "http",
+    "url": "http://localhost:3000/mcp",
+    "headers": {}
+  },
+  "auth": { "kind": "none" },
+  "lifecycle": { "mode": "lazy", "idleTimeoutMinutes": 10 },
+  "syncedFrom": "live-server",
+  "syncedAt": "2026-07-19T06:00:00.000Z"
+}
+```
+
+> `instructions` 在 `/mcp-bridge sync` 时自动从 MCP 服务器的 `initialize` 响应抓取。也可以手改。HTTP 服务器的传输 kind 就是 `"http"` —— sync 和懒连接会自动先试 StreamableHTTP，失败回退到 SSE。
+
+`tools/resolve-library-id.json` 示例：
+
+```json
+{
+  "name": "resolve-library-id",
+  "description": "Resolve a Context7-compatible library ID from a library name.",
   "inputSchema": {
     "type": "object",
-    "properties": { "path": { "type": "string" } },
-    "required": ["path"]
+    "properties": {
+      "query": { "type": "string" },
+      "libraryName": { "type": "string" }
+    },
+    "required": ["query", "libraryName"]
   }
 }
 ```

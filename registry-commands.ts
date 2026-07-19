@@ -7,6 +7,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { getRegistryRoot } from "./agent-dir.ts";
 import { loadRegistry } from "./registry/registry-loader.ts";
 import { syncServer, validateRegistry, rebuildIndex } from "./registry/registry-writer.ts";
@@ -34,7 +36,7 @@ export interface SyncResult {
  */
 export async function doSync(
   serverName: string,
-  command: string,
+  command: string | undefined,
   commandArgs: string[],
   options: SyncOptions = {},
 ): Promise<SyncResult> {
@@ -44,6 +46,13 @@ export async function doSync(
   mkdirSync(join(serverDir, "tools"), { recursive: true });
 
   if (!existsSync(metaPath)) {
+    if (!command) {
+      return {
+        ok: false,
+        serverName,
+        error: `no meta.json for "${serverName}" and no command provided. Use \`/mcp-bridge add ${serverName} -- <command>\` or \`/mcp-bridge add ${serverName} --url <url>\` first.`,
+      };
+    }
     const meta: ServerMeta = {
       $schema: "https://pi-mcp-bridge.dev/schemas/meta.v1.json",
       name: serverName,
@@ -65,16 +74,38 @@ export async function doSync(
   }
 
   const meta = server.meta;
-  if (meta.transport.kind !== "stdio") {
-    return { ok: false, serverName, error: "HTTP transport sync not implemented in Phase 1 — use stdio." };
+
+  // Build the right transport for the configured kind.
+  // - stdio: spawn the command.
+  // - http: probe StreamableHTTP first (modern MCP), fall back to SSE
+  //   (legacy) — same logic as McpServerManager.
+  let transport;
+  if (meta.transport.kind === "stdio") {
+    transport = new StdioClientTransport({
+      command: meta.transport.command,
+      args: meta.transport.args ?? [],
+      env: meta.transport.env,
+    });
+  } else if (meta.transport.kind === "http") {
+    const url = new URL(meta.transport.url);
+    const headers = meta.transport.headers ?? {};
+    const requestInit = Object.keys(headers).length > 0 ? { headers } : undefined;
+    const streamable = new StreamableHTTPClientTransport(url, { requestInit });
+    try {
+      const probe = new Client({ name: "pi-mcp-bridge-sync-probe", version: "1.0.0" });
+      await probe.connect(streamable);
+      await probe.close().catch(() => {});
+      await streamable.close().catch(() => {});
+      transport = new StreamableHTTPClientTransport(url, { requestInit });
+    } catch {
+      await streamable.close().catch(() => {});
+      transport = new SSEClientTransport(url, { requestInit });
+    }
+  } else {
+    return { ok: false, serverName, error: `unsupported transport kind for sync` };
   }
 
   const client = new Client({ name: `pi-mcp-bridge-sync-${meta.name}`, version: "1.0.0" });
-  const transport = new StdioClientTransport({
-    command: meta.transport.command,
-    args: meta.transport.args ?? [],
-    env: meta.transport.env,
-  });
 
   try {
     await client.connect(transport);

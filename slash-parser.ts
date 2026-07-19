@@ -11,7 +11,7 @@
 
 export interface ParsedSyncArgs {
   serverName: string;
-  command: string;
+  command?: string;
   commandArgs: string[];
   env: Record<string, string>;
   force: boolean;
@@ -66,8 +66,13 @@ export function parseSyncArgs(args: string): ParsedSyncArgs | { error: string } 
     }
   }
 
+  // `-- <command>` is optional: HTTP servers added via `--url` don't need
+  // a command (they sync from the existing meta.json's URL). stdio servers
+  // either provide a command here, or were already added with one.
   if (right.length === 0) {
-    return { error: "sync requires a command after `--` (e.g. `/mcp-bridge sync context7 -- npx -y @upstash/context7-mcp`)" };
+    // No command — only valid if the server already exists (e.g. HTTP via --url,
+    // or a previously-added stdio stub). doSync will error if meta is missing.
+    return { serverName, command: undefined, commandArgs: [], env, force };
   }
 
   return { serverName, command: right[0], commandArgs: right.slice(1), env, force };

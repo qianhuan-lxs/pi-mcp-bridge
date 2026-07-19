@@ -36,9 +36,13 @@ describe("parseSyncArgs", () => {
     expect("error" in r).toBe(true);
   });
 
-  it("errors without a command after --", () => {
-    const r = parseSyncArgs("context7");
-    expect("error" in r).toBe(true);
+  it("accepts sync without a command (HTTP server already added via --url)", () => {
+    const r = parseSyncArgs("myhttp");
+    expect("error" in r).toBe(false);
+    if ("error" in r) return;
+    expect(r.serverName).toBe("myhttp");
+    expect(r.command).toBeUndefined();
+    expect(r.commandArgs).toEqual([]);
   });
 });
 

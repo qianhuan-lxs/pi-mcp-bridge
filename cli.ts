@@ -55,12 +55,13 @@ async function main(): Promise<void> {
         process.exit(2);
       }
       const dashIdx = args.positionals.indexOf("--");
-      if (dashIdx < 0 || dashIdx >= args.positionals.length - 1) {
-        console.error("sync requires a command after `--`");
-        process.exit(2);
+      let command: string | undefined;
+      let commandArgs: string[] = [];
+      if (dashIdx >= 0 && dashIdx < args.positionals.length - 1) {
+        command = args.positionals[dashIdx + 1];
+        commandArgs = args.positionals.slice(dashIdx + 2);
       }
-      const command = args.positionals[dashIdx + 1];
-      const commandArgs = args.positionals.slice(dashIdx + 2);
+      // command is optional — HTTP servers added via --url sync without it.
       const result = await doSync(serverName, command, commandArgs, { force: args.values.force });
       if (!result.ok) {
         console.error(`Sync failed: ${result.error}`);
