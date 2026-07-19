@@ -303,23 +303,6 @@ Environment overrides:
 - `PI_MCP_BRIDGE_REGISTRY` — override the registry root (default `<agent dir>/mcp-registry`).
 - `MCP_OUTPUT_GUARD=0` — disable the output guard.
 
-## OpenSpec
-
-This project is spec-driven via [OpenSpec](https://github.com/Fission-AI/OpenSpec). See:
-
-- [`openspec/project.md`](./openspec/project.md) — high-level project context and principles.
-- [`openspec/specs/`](./openspec/specs/) — behavior contracts (the "what").
-- [`openspec/changes/phase-1-core/`](./openspec/changes/phase-1-core/) — Phase 1 proposal, design, and task list (the "how" and "when").
-
-### Roadmap
-
-| Phase | Scope | Status |
-|-------|-------|--------|
-| 1 — Core | Three tools, filesystem registry, system-prompt injection, lazy connect, output guard, UI integration, server `instructions` capture | ✅ This release |
-| 2 — OAuth | OAuth 2.1 flow, dynamic client registration, PKCE, `mcp_auth` tool | 📋 Proposed |
-| 3 — Sampling | Server-initiated `sampling/createMessage` | 📋 Proposed |
-| 4 — Elicitation | Server-initiated `elicitation/create` | 📋 Proposed |
-
 ## License
 
 MIT © 2026 [qianhuan-lxs](https://github.com/qianhuan-lxs)

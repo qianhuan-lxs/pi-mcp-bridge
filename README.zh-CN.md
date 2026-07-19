@@ -302,23 +302,6 @@ npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <sync|add|validate|lis
 - `PI_MCP_BRIDGE_REGISTRY` —— 覆盖注册表根目录（默认 `<agent dir>/mcp-registry`）。
 - `MCP_OUTPUT_GUARD=0` —— 禁用输出守卫。
 
-## OpenSpec
-
-本项目用 [OpenSpec](https://github.com/Fission-AI/OpenSpec) 做规格驱动开发。参见：
-
-- [`openspec/project.md`](./openspec/project.md) —— 项目高层背景与原则。
-- [`openspec/specs/`](./openspec/specs/) —— 行为契约（"做什么"）。
-- [`openspec/changes/phase-1-core/`](./openspec/changes/phase-1-core/) —— Phase 1 提案、设计与任务清单（"怎么做"和"何时做"）。
-
-### 路线图
-
-| 阶段 | 范围 | 状态 |
-|------|------|------|
-| 1 — 核心 | 三个工具、文件系统注册表、系统提示注入、懒连接、输出守卫、UI 集成、服务器 `instructions` 抓取 | ✅ 本次发布 |
-| 2 — OAuth | OAuth 2.1 流程、动态客户端注册、PKCE、`mcp_auth` 工具 | 📋 已提案 |
-| 3 — Sampling | 服务器发起的 `sampling/createMessage` | 📋 已提案 |
-| 4 — Elicitation | 服务器发起的 `elicitation/create` | 📋 已提案 |
-
 ## License
 
 MIT © 2026 [qianhuan-lxs](https://github.com/qianhuan-lxs)
