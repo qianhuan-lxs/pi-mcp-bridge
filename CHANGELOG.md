@@ -4,6 +4,19 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] — 2026-07-19
+
+### Fixed — `add` now auto-syncs (eliminates the "0 tools" footgun)
+
+A real Pi session loaded `filesystem` and `memory` via `/mcp-bridge add` but never ran `/mcp-bridge sync`. Result: both servers showed up in the registry with **0 tools** — `CallMcpTool` couldn't find any tools, and `filesystem` even failed to connect on `ListMcpResources` (`MCP error -32000: Connection closed`). The `add` return message did say "Run /mcp-bridge sync …" but the two-step flow was a footgun.
+
+- **`/mcp-bridge add` now chains straight into sync.** After `doAdd` writes the `meta.json` stub, the handler calls the same sync-with-progress path used by the `sync` subcommand. One step produces a fully-populated server: `Added + synced "<server>": N tools, M resources indexed. Ready to call.`
+- Extracted a shared `runSync(serverName, command, commandArgs, env, force)` helper inside the command handler so `sync` and `add` share the footer-spinner + `doSync` + registry-reload + status-bar-refresh logic. No behavior change for `sync`.
+- If auto-sync fails, the message points at the manual retry command: `Added "<server>" but auto-sync failed: <error>. Run \`/mcp-bridge sync <server> -- <command>\` to retry.`
+- If auto-sync is skipped (e.g. `syncedFrom: "manual"` guard), the message tells the user to run sync manually.
+- Works for HTTP servers too: `add --url <url>` writes the http-transport stub, then auto-sync probes Streamable HTTP → SSE fallback against that URL (no command needed, per v0.3.1).
+- 73 tests pass; `tsc` clean. (No new unit tests — `runSync` is a closure inside the command handler; the underlying `doAdd`/`doSync` are already covered.)
+
 ## [0.4.2] — 2026-07-19
 
 ### Changed — make the wrapper indirection visible in `renderCall`

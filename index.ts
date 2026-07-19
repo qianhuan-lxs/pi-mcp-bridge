@@ -327,6 +327,55 @@ export default function mcpBridge(pi: ExtensionAPI) {
         else console.log(msg);
       };
 
+      // Shared sync-with-progress helper used by both the `sync` subcommand
+      // and the auto-sync chained after `add`. Drives the footer spinner,
+      // runs doSync, reloads the registry, and refreshes the status bar.
+      // Returns the SyncResult so callers can branch on ok/skipped/error.
+      const runSync = async (
+        serverName: string,
+        command: string | undefined,
+        commandArgs: string[],
+        env: Record<string, string> | undefined,
+        force: boolean,
+      ) => {
+        const theme = ctx.hasUI ? (ctx.ui.theme as { fg: (n: string, t: string) => string }) : null;
+        const spinFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let spinIdx = 0;
+        let spinTimer: ReturnType<typeof setInterval> | null = null;
+        let currentStep = "starting…";
+        const paint = () => {
+          if (!ctx.hasUI || !theme) return;
+          const spinner = theme.fg("accent", spinFrames[spinIdx % spinFrames.length]!);
+          ctx.ui.setStatus(STATUS_KEY, `${spinner} ${theme.fg("dim", `Syncing "${serverName}": ${currentStep}`)}`);
+        };
+        if (ctx.hasUI) {
+          paint();
+          spinTimer = setInterval(() => { spinIdx++; paint(); }, 80);
+        } else {
+          notify(`Syncing "${serverName}" (connecting to live server)...`);
+        }
+        const result = await doSync(serverName, command, commandArgs, {
+          force,
+          env,
+          onProgress: (step) => { currentStep = step; paint(); },
+        });
+        if (spinTimer) clearInterval(spinTimer);
+        if (!result.ok || result.skipped) {
+          if (state) refreshStatusBar(state);
+          return result;
+        }
+        // Auto-reload so the new tools are visible to the model immediately.
+        if (state) {
+          const registry = loadRegistry();
+          state.registry = registry;
+          injectedBlock = null;
+          refreshStatusBar(state);
+          const total = [...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
+          notify(`MCP registry reloaded: ${registry.servers.size} servers, ${total} tools. Next turn will use the updated context.`);
+        }
+        return result;
+      };
+
       switch (subcommand) {
         case "sync": {
           const parsed = parseSyncArgs(rest);
@@ -334,53 +383,24 @@ export default function mcpBridge(pi: ExtensionAPI) {
             notify(parsed.error, "error");
             return;
           }
-          // Drive the footer status bar with a spinner + step label while
-          // sync runs, so the user sees live progress instead of a single
-          // "Syncing..." toast. Falls back to a notify in non-TUI modes.
-          const theme = ctx.hasUI ? (ctx.ui.theme as { fg: (n: string, t: string) => string }) : null;
-          const spinFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-          let spinIdx = 0;
-          let spinTimer: ReturnType<typeof setInterval> | null = null;
-          let currentStep = "starting…";
-          const paint = () => {
-            if (!ctx.hasUI || !theme) return;
-            const spinner = theme.fg("accent", spinFrames[spinIdx % spinFrames.length]!);
-            ctx.ui.setStatus(STATUS_KEY, `${spinner} ${theme.fg("dim", `Syncing "${parsed.serverName}": ${currentStep}`)}`);
-          };
-          if (ctx.hasUI) {
-            paint();
-            spinTimer = setInterval(() => { spinIdx++; paint(); }, 80);
-          } else {
-            notify(`Syncing "${parsed.serverName}" (connecting to live server)...`);
-          }
-          const result = await doSync(parsed.serverName, parsed.command, parsed.commandArgs, {
-            force: parsed.force,
-            env: Object.keys(parsed.env).length > 0 ? parsed.env : undefined,
-            onProgress: (step) => { currentStep = step; paint(); },
-          });
-          if (spinTimer) clearInterval(spinTimer);
+          const result = await runSync(
+            parsed.serverName,
+            parsed.command,
+            parsed.commandArgs,
+            Object.keys(parsed.env).length > 0 ? parsed.env : undefined,
+            parsed.force,
+          );
           if (!result.ok) {
-            if (state) refreshStatusBar(state);
             notify(`Sync failed: ${result.error}`, "error");
             return;
           }
           if (result.skipped) {
-            if (state) refreshStatusBar(state);
             notify(`Skipped "${result.serverName}": ${result.skipped}`);
             return;
           }
           notify(
-            `Synced "${result.serverName}": ${result.toolsWritten} tools written, ${result.toolsRemoved} removed, ${result.resourcesIndexed} resources indexed. Reloading agent context...`,
+            `Synced "${result.serverName}": ${result.toolsWritten} tools written, ${result.toolsRemoved} removed, ${result.resourcesIndexed} resources indexed.`,
           );
-          // Auto-reload so the new tools are visible to the model immediately.
-          if (state) {
-            const registry = loadRegistry();
-            state.registry = registry;
-            injectedBlock = null;
-            refreshStatusBar(state);
-            const total = [...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
-            notify(`MCP registry reloaded: ${registry.servers.size} servers, ${total} tools. Next turn will use the updated context.`);
-          }
           return;
         }
 
@@ -414,8 +434,30 @@ export default function mcpBridge(pi: ExtensionAPI) {
             notify(`Add failed: ${result.error}`, "error");
             return;
           }
+          // Auto-sync: `add` only writes a meta.json stub. Without sync the
+          // server shows up in the registry with 0 tools — a footgun where
+          // CallMcpTool can't find any tools and ListMcpResources may even
+          // fail to connect. Chain straight into sync so the user gets a
+          // fully-populated server in one step.
+          notify(`Added "${result.serverName}" → ${result.metaPath}. Auto-syncing tools…`);
+          const env = Object.keys(parsed.env).length > 0 ? parsed.env : undefined;
+          const syncResult = await runSync(
+            parsed.serverName,
+            parsed.command,
+            parsed.commandArgs,
+            env,
+            false,
+          );
+          if (!syncResult.ok) {
+            notify(`Added "${result.serverName}" but auto-sync failed: ${syncResult.error}. Run \`/mcp-bridge sync ${parsed.serverName} -- <command>\` to retry.`, "error");
+            return;
+          }
+          if (syncResult.skipped) {
+            notify(`Added "${result.serverName}" (sync skipped: ${syncResult.skipped}). Run \`/mcp-bridge sync ${parsed.serverName}\` to populate tools.`);
+            return;
+          }
           notify(
-            `Added "${result.serverName}" → ${result.metaPath}. Run /mcp-bridge sync ${result.serverName} -- <command> to populate tools/.`,
+            `Added + synced "${result.serverName}": ${syncResult.toolsWritten} tools, ${syncResult.resourcesIndexed} resources indexed. Ready to call.`,
           );
           return;
         }
