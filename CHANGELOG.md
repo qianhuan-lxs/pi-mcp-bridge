@@ -4,7 +4,22 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] — 2026-07-19
+
+### Fixed
+
+- **Bin entry now survives `npm publish`.** The CLI shim `bin/pi-mcp-bridge.mjs` lacked the executable bit, causing npm to strip the `bin` field at publish time with the warning `bin[pi-mcp-bridge] script name ... was invalid and removed`. `chmod +x` the shim so `pi-mcp-bridge` registers on the consumer's PATH after `pi install`.
+
+### Changed
+
+- **Package name is now scoped:** `@qianhuan-lxs/pi-mcp-bridge`. The unscoped `pi-mcp-bridge` name was already taken on npm by another author; the scoped name under the maintainer's GitHub username avoids the collision while staying installable via `pi install npm:@qianhuan-lxs/pi-mcp-bridge`.
+- **Pi core packages moved to `peerDependencies` with `"*` range** (`@earendil-works/pi-ai`, `-pi-coding-agent`, `-pi-tui`, `typebox`). They are provided by the pi runtime; bundling them would cause version conflicts. Real versions retained in `devDependencies` for local typechecking.
+- **`tsx` moved to `dependencies`** — the CLI bin shim needs it at runtime to load `cli.ts`.
+- **`engines: node >=20.19`** declared.
+- **`publishConfig: { access: public }`** set for scoped-name safety.
+- README install commands updated to `pi install npm:@qianhuan-lxs/pi-mcp-bridge`.
+
+## [0.1.0] — 2026-07-19
 
 ### Added — Phase 1 (core)
 

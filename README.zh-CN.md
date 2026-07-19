@@ -55,9 +55,12 @@ Cursor 的 [Dynamic Context Discovery](https://cursor.com/cn/blog/dynamic-contex
 ### 1. 安装
 
 ```bash
-# 在你的 Pi agent 目录里（默认 ~/.pi/agent）
-npm install qianhuan-lxs/pi-mcp-bridge
+pi install npm:@qianhuan-lxs/pi-mcp-bridge
 ```
+
+这会把包装到 `~/.pi/agent/npm/` 下,并通过包里的 `pi.extensions` manifest 自动注册扩展 —— 不用手动改配置。
+
+> **注意:** `pi install` 需要 Pi v0.74+。如果你用的是旧版 Pi,或想手动管理,把 `"@qianhuan-lxs/pi-mcp-bridge"` 加到 `~/.pi/agent/settings.json` 的 `packages` 数组里即可。
 
 ### 2. 注册扩展
 

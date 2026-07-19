@@ -55,9 +55,12 @@ See [`docs/architecture.md`](./docs/architecture.md) for the full module map, de
 ### 1. Install
 
 ```bash
-# In your Pi agent directory (default: ~/.pi/agent)
-npm install qianhuan-lxs/pi-mcp-bridge
+pi install npm:@qianhuan-lxs/pi-mcp-bridge
 ```
+
+This installs the package under `~/.pi/agent/npm/` and auto-registers the extension via its `pi.extensions` manifest — no manual config editing required.
+
+> **Note:** `pi install` requires Pi v0.74+. If you're on an older Pi or want to manage it manually, add `"@qianhuan-lxs/pi-mcp-bridge"` to the `packages` array in your `~/.pi/agent/settings.json`.
 
 ### 2. Register the extension
 
