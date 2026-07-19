@@ -222,7 +222,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
     renderCall(args: { server: string; toolName: string; arguments?: Record<string, unknown> }, theme: unknown) {
       return renderWrapperToolCall(
         {
-          displayTitle: `${args.toolName} @ ${args.server}`,
+          displayTitle: `CallMcpTool → ${args.toolName} @ ${args.server}`,
           argsJson: args.arguments ? JSON.stringify(args.arguments) : undefined,
         },
         theme as never,
@@ -270,7 +270,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
     renderCall(args: { server: string; uri: string; downloadPath?: string }, theme: unknown) {
       return renderWrapperToolCall(
         {
-          displayTitle: `${args.uri} @ ${args.server}`,
+          displayTitle: `FetchMcpResource → ${args.uri} @ ${args.server}`,
           argsJson: args.downloadPath ? JSON.stringify({ downloadPath: args.downloadPath }) : undefined,
         },
         theme as never,
@@ -305,7 +305,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
       return executeListMcpResources(state, params, signal);
     },
     renderCall(args: { server: string }, theme: unknown) {
-      return renderWrapperToolCall({ displayTitle: `list @ ${args.server}` }, theme as never);
+      return renderWrapperToolCall({ displayTitle: `ListMcpResources → list @ ${args.server}` }, theme as never);
     },
     renderResult(result: { details?: { error?: unknown } }, options: never, theme: unknown) {
       return renderMcpToolResult(result as never, options, theme as never, {

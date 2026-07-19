@@ -16,6 +16,15 @@ Root cause: `renderWithSchemas` (the inline-schema level used for small registri
 - The files-level instruction now **explicitly warns against relative paths** and points at the absolute `folder:` path already rendered under each server header.
 - Updated `__tests__/context-injector.test.ts`: the old "includes the MANDATORY read-schema-first instruction" test (which asserted the inline level said MANDATORY) is replaced by two tests — one asserting the inline level says "do NOT read schema files", one asserting the files level (31-tool registry, over the limit) says "read the descriptor file" + "Do NOT use relative paths" + includes the absolute folder path. All 73 tests pass; `tsc` clean.
 
+### Changed — make the wrapper indirection visible in `renderCall`
+
+A real Pi session showed `resolve-library-id @ context7` for a `CallMcpTool` invocation — the v0.4.0 `renderCall` wiring rendered it so cleanly that it was indistinguishable from a native tool call, prompting "why is it directly calling the MCP's original tool?" The wrapper indirection is the project's core design and should be visible on every call.
+
+- `CallMcpTool` now renders as `CallMcpTool → <toolName> @ <server>`.
+- `FetchMcpResource` now renders as `FetchMcpResource → <uri> @ <server>`.
+- `ListMcpResources` now renders as `ListMcpResources → list @ <server>`.
+- The model still calls the same three wrapper tools; only the TUI display prefix changed. No existing tests asserted the old format, so no test updates needed. 73 tests pass; `tsc` clean.
+
 ## [0.4.0] — 2026-07-19
 
 ### Added — Wrapper tool rendering, UI session wiring, consent gate
