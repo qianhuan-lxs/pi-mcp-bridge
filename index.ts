@@ -16,6 +16,9 @@ import { executeCallMcpTool } from "./call-mcp-tool.ts";
 import { executeFetchMcpResource } from "./fetch-mcp-resource.ts";
 import { McpServerManager } from "./server-manager.ts";
 import { McpLifecycleManager } from "./lifecycle.ts";
+import { ConsentManager } from "./consent-manager.ts";
+import { UiResourceHandler } from "./ui-resource-handler.ts";
+import { startUiServer, type UiServerHandle } from "./ui-server.ts";
 import { toolErrorOverride } from "./error-signal.ts";
 import { logger } from "./logger.ts";
 
@@ -79,6 +82,18 @@ export default function mcpBridge(pi: ExtensionAPI) {
     lifecycle.setGlobalIdleTimeout(settings.idleTimeout ?? 10);
     lifecycle.startHealthChecks();
 
+    // Wire up the UI integration (MCP UI / Glimpse).
+    const consentManager = new ConsentManager("once-per-server");
+    const uiResourceHandler = new UiResourceHandler(manager);
+    let uiServer: UiServerHandle | null = null;
+    try {
+      uiServer = startUiServer({ manager, consentManager });
+    } catch (error) {
+      logger.warn(
+        `UI server did not start (UI integration disabled): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
     const nextState: McpBridgeState = {
       manager,
       lifecycle,
@@ -86,10 +101,9 @@ export default function mcpBridge(pi: ExtensionAPI) {
       registry,
       settings,
       failureTracker: new Map(),
-      // Phase 1 stubs for UI integration (M6 fills these in):
-      uiResourceHandler: undefined as unknown as McpBridgeState["uiResourceHandler"],
-      consentManager: undefined as unknown as McpBridgeState["consentManager"],
-      uiServer: null,
+      uiResourceHandler,
+      consentManager,
+      uiServer,
       completedUiSessions: [],
       openBrowser: async (url: string) => {
         const open = (await import("open")).default;
