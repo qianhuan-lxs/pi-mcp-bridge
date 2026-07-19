@@ -258,10 +258,10 @@ The `/mcp-bridge` command is the primary interface for registry management (no s
     agent context for the next turn.
 
 /mcp-bridge add <server> [--env K=V]... -- <command> [args...]
-    Add a server stub (meta.json only); use `sync` afterwards to populate tools/.
+    Add a server and auto-sync its tools/resources in one step.
 
 /mcp-bridge add <server> --url <url> [--description <text>]
-    Add an HTTP-transport server stub.
+    Add an HTTP-transport server and auto-sync against the URL.
 
 /mcp-bridge validate
     Validate the registry against the JSON schemas and rebuild index.json.
@@ -273,7 +273,7 @@ The `/mcp-bridge` command is the primary interface for registry management (no s
     Show how many servers and tools are currently loaded.
 
 /mcp-bridge reload
-    Re-read the registry from disk and refresh the agent context.
+    Reconcile optional mcp-servers.json, re-read the registry, refresh context.
 
 /mcp-bridge approve <server>
     (Only when `requireConsent` is on.) Approve a server so CallMcpTool calls go through.
@@ -289,6 +289,53 @@ npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <sync|add|validate|lis
 ```
 
 ## Configuration
+
+### MCP servers file (OpenCode-aligned, optional)
+
+Hand-edit transport config in a single JSON file — same shape as OpenCode's `mcp` block. The bridge reconciles it into the filesystem registry (`meta.json`) on `session_start` and `/mcp-bridge reload`, then auto-syncs **newly added** servers so `tools/*.json` is populated.
+
+Paths (project overrides global by server name):
+- Global: `~/.pi/agent/mcp-servers.json`
+- Project: `.pi/mcp-servers.json`
+
+```jsonc
+{
+  "mcp": {
+    "context7": {
+      "type": "local",
+      "command": ["npx", "-y", "@upstash/context7-mcp"],
+      "enabled": true
+    },
+    "filesystem": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path/to/root"],
+      "environment": { "FOO": "bar" }
+    },
+    "docs": {
+      "type": "remote",
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "Authorization": "Bearer ..." },
+      "enabled": true
+    }
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `type` | `"local"` (stdio) or `"remote"` (HTTP / SSE) |
+| `command` | Local only: command + args as a string array (OpenCode style) |
+| `environment` / `cwd` | Local only: env vars / working directory |
+| `url` / `headers` | Remote only |
+| `oauth` | Remote only: OAuth object (stored in `meta.auth` for Phase 2) or `false` |
+| `enabled` | `false` skips the server (OpenCode semantics); default enabled |
+| `timeout` | Request timeout ms → `meta.lifecycle.requestTimeoutMs` |
+
+Policies: registry servers missing from the file are **warned**, never deleted. `/mcp-bridge add` still works as a shortcut; if `mcp-servers.json` already exists, `add` also upserts an OpenCode-shaped entry into it.
+
+Tool schemas stay in `registry/<server>/tools/*.json` (sync product) — edit the JSON for transport, not for schemas.
+
+### Bridge settings
 
 `~/.pi/agent/mcp-bridge.json` (all fields optional; defaults shown):
 

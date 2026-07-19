@@ -257,10 +257,10 @@ npx -y @modelcontextprotocol/server-everything sse
     把 meta.json + tools/*.json 写进注册表。自动 reload 下一轮的上下文。
 
 /mcp-bridge add <server> [--env K=V]... -- <command> [args...]
-    添加一个服务器存根（只写 meta.json）；之后用 `sync` 抓取工具。
+    添加服务器并自动 sync 工具/资源（一步完成）。
 
 /mcp-bridge add <server> --url <url> [--description <text>]
-    添加一个 HTTP 传输的服务器存根。
+    添加 HTTP 传输服务器并对该 URL 自动 sync。
 
 /mcp-bridge validate
     按 JSON Schema 校验注册表，重建 index.json。
@@ -272,7 +272,7 @@ npx -y @modelcontextprotocol/server-everything sse
     查看当前加载了多少服务器和工具。
 
 /mcp-bridge reload
-    从磁盘重读注册表，刷新 agent 上下文。
+    协调可选的 mcp-servers.json，重读注册表，刷新上下文。
 
 /mcp-bridge approve <server>
     （仅在 `requireConsent` 开启时生效。）批准某服务器，放行后续的 CallMcpTool 调用。
@@ -288,6 +288,53 @@ npx tsx ./node_modules/@qianhuan-lxs/pi-mcp-bridge/cli.ts <sync|add|validate|lis
 ```
 
 ## 配置
+
+### MCP 服务器配置文件（对齐 OpenCode，可选）
+
+用单个 JSON 手写传输配置 —— 形状与 OpenCode 的 `mcp` 块一致。`session_start` 和 `/mcp-bridge reload` 时会协调进文件系统注册表（`meta.json`），并对**新加的**服务器自动 sync，以填充 `tools/*.json`。
+
+路径（同名时项目级覆盖全局）：
+- 全局：`~/.pi/agent/mcp-servers.json`
+- 项目：`.pi/mcp-servers.json`
+
+```jsonc
+{
+  "mcp": {
+    "context7": {
+      "type": "local",
+      "command": ["npx", "-y", "@upstash/context7-mcp"],
+      "enabled": true
+    },
+    "filesystem": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path/to/root"],
+      "environment": { "FOO": "bar" }
+    },
+    "docs": {
+      "type": "remote",
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "Authorization": "Bearer ..." },
+      "enabled": true
+    }
+  }
+}
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `type` | `"local"`（stdio）或 `"remote"`（HTTP / SSE） |
+| `command` | 仅 local：命令 + 参数字符串数组（OpenCode 风格） |
+| `environment` / `cwd` | 仅 local：环境变量 / 工作目录 |
+| `url` / `headers` | 仅 remote |
+| `oauth` | 仅 remote：OAuth 对象（写入 `meta.auth` 供 Phase 2）或 `false` |
+| `enabled` | `false` 跳过该服务器（OpenCode 语义）；默认启用 |
+| `timeout` | 请求超时毫秒 → `meta.lifecycle.requestTimeoutMs` |
+
+策略：注册表里有、文件里没有的服务器只**警告**、不删除。`/mcp-bridge add` 仍可用；若已存在 `mcp-servers.json`，`add` 会同时 upsert 一条 OpenCode 形状的条目。
+
+工具 schema 仍在 `registry/<server>/tools/*.json`（sync 产物）——手改 JSON 只改传输，不改 schema。
+
+### Bridge 设置
 
 `~/.pi/agent/mcp-bridge.json`（所有字段可选，默认值如下）：
 

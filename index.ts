@@ -8,6 +8,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { existsSync } from "node:fs";
 import type { McpBridgeState } from "./state.ts";
 import { loadBridgeSettings } from "./config.ts";
 import { loadRegistry } from "./registry/registry-loader.ts";
@@ -26,6 +27,7 @@ import { logger } from "./logger.ts";
 import { doSync, doValidate, doAdd, doList } from "./registry-commands.ts";
 import { parseSyncArgs, parseAddArgs } from "./slash-parser.ts";
 import { refreshStatusBar, clearStatusBar, renderListTable, renderStatusLine, STATUS_KEY } from "./status-bar.ts";
+import { reconcileRegistryFromConfig, upsertMcpServersConfigEntry, getMcpServersConfigPaths } from "./mcp-servers-config.ts";
 
 export default function mcpBridge(pi: ExtensionAPI) {
   let state: McpBridgeState | null = null;
@@ -61,7 +63,44 @@ export default function mcpBridge(pi: ExtensionAPI) {
 
     // Load settings + registry (read-only, never throws).
     const settings = loadBridgeSettings();
-    const registry = loadRegistry();
+    let registry = loadRegistry();
+
+    // Reconcile the optional OpenCode-style `mcp-servers.json` into the
+    // registry: upsert metas for new/changed entries. Auto-sync newly
+    // added servers (per the new_only policy) so they don't sit with 0
+    // tools. No-op when no config file is present. `enabled: false` skipped.
+    try {
+      const rec = reconcileRegistryFromConfig();
+      if (rec.sources.length > 0) {
+        logger.info(`mcp-servers.json reconciled from ${rec.sources.join(", ")}: ${rec.added.length} added, ${rec.updated.length} updated, ${rec.orphans.length} orphan(s)`);
+        for (const orphan of rec.orphans) {
+          logger.warn(`registry server "${orphan}" not in mcp-servers.json — kept (not deleted)`);
+        }
+        if (rec.added.length > 0) {
+          // Auto-sync new servers so they have tools on the first turn.
+          // Run in parallel; each is isolated so one failure doesn't block.
+          await Promise.allSettled(
+            rec.added.map(async (name) => {
+              try {
+                const r = await doSync(name, undefined, [], {});
+                if (!r.ok) logger.warn(`auto-sync of "${name}" failed: ${r.error}`);
+                else logger.info(`auto-synced "${name}": ${r.toolsWritten ?? 0} tools`);
+              } catch (error) {
+                logger.warn(
+                  `auto-sync of "${name}" threw: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              }
+            }),
+          );
+          // Re-load the registry so the freshly-synced tools are visible.
+          registry = loadRegistry();
+        } else if (rec.updated.length > 0) {
+          registry = loadRegistry();
+        }
+      }
+    } catch (error) {
+      logger.error("mcp-servers.json reconcile failed", error instanceof Error ? error : undefined);
+    }
 
     // Build the in-memory tool metadata map from the registry.
     const toolMetadata = new Map<string, import("./types.ts").ToolMetadata[]>();
@@ -322,7 +361,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
       const parts = input.split(/\s+/);
       const subcommand = parts[0] ?? "";
       const rest = input.slice(subcommand.length).trim();
-      const notify = (msg: string, level: "info" | "error" = "info") => {
+      const notify = (msg: string, level: "info" | "error" | "warning" = "info") => {
         if (ctx.hasUI) ctx.ui.notify(msg, level);
         else console.log(msg);
       };
@@ -434,6 +473,34 @@ export default function mcpBridge(pi: ExtensionAPI) {
             notify(`Add failed: ${result.error}`, "error");
             return;
           }
+          // If the user has adopted the OpenCode-style `mcp-servers.json`
+          // workflow (file exists), keep it as the source of truth by
+          // upserting this entry there too (OpenCode shape). No-op if the
+          // file is absent (meta.json-only flow).
+          const configPaths = getMcpServersConfigPaths();
+          if (existsSync(configPaths.global) || existsSync(configPaths.project)) {
+            const scope = existsSync(configPaths.project) ? "project" : "global";
+            try {
+              const entry = parsed.url
+                ? {
+                    type: "remote" as const,
+                    url: parsed.url,
+                    description: parsed.description,
+                    enabled: true,
+                  }
+                : {
+                    type: "local" as const,
+                    command: [parsed.command!, ...(parsed.commandArgs ?? [])],
+                    environment: Object.keys(parsed.env).length > 0 ? parsed.env : undefined,
+                    description: parsed.description,
+                    enabled: true,
+                  };
+              const writtenTo = upsertMcpServersConfigEntry(parsed.serverName, entry, scope);
+              notify(`Also upserted "${parsed.serverName}" into ${writtenTo}.`);
+            } catch (error) {
+              notify(`Could not upsert into mcp-servers.json: ${error instanceof Error ? error.message : String(error)}`, "warning");
+            }
+          }
           // Auto-sync: `add` only writes a meta.json stub. Without sync the
           // server shows up in the registry with 0 tools — a footgun where
           // CallMcpTool can't find any tools and ListMcpResources may even
@@ -489,6 +556,28 @@ export default function mcpBridge(pi: ExtensionAPI) {
             return;
           }
           const previousCount = state.registry.servers.size;
+          // Reconcile the optional mcp-servers.json first (upsert metas),
+          // then auto-sync any newly-added servers (new_only policy).
+          let addedFromConfig: string[] = [];
+          let orphanWarnings: string[] = [];
+          try {
+            const rec = reconcileRegistryFromConfig();
+            addedFromConfig = rec.added;
+            orphanWarnings = rec.orphans;
+            if (rec.sources.length > 0) {
+              notify(`Reconciled mcp-servers.json (${rec.sources.length} file(s)): ${rec.added.length} added, ${rec.updated.length} updated${rec.orphans.length > 0 ? `, ${rec.orphans.length} orphan(s)` : ""}.`);
+            }
+          } catch (error) {
+            notify(`mcp-servers.json reconcile failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+          }
+          // Auto-sync newly-added servers from the config.
+          if (addedFromConfig.length > 0) {
+            for (const name of addedFromConfig) {
+              notify(`Auto-syncing new server "${name}" from mcp-servers.json…`);
+              const r = await runSync(name, undefined, [], undefined, false);
+              if (!r.ok) notify(`Auto-sync of "${name}" failed: ${r.error}`, "error");
+            }
+          }
           const registry = loadRegistry();
           state.registry = registry;
           // Reset the cached injected block so the `context` event handler
@@ -497,6 +586,9 @@ export default function mcpBridge(pi: ExtensionAPI) {
           refreshStatusBar(state);
           const newCount = registry.servers.size;
           const total = [...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
+          for (const orphan of orphanWarnings) {
+            notify(`Registry server "${orphan}" is not in mcp-servers.json — kept (not deleted). Add it to the file or remove its directory manually.`, "warning");
+          }
           notify(
             `MCP registry reloaded: ${newCount} servers, ${total} tools${newCount !== previousCount ? ` (was ${previousCount})` : ""}. Next turn will use the updated context.`,
           );

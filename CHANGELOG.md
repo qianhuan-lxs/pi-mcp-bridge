@@ -4,6 +4,18 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-07-19
+
+### Added — OpenCode-aligned `mcp-servers.json`
+
+Optional single-file transport config matching OpenCode's `mcp` block (`type: "local" | "remote"`, `command` as a string array, `environment`, `enabled`, remote `url`/`headers`/`oauth`). Paths: `~/.pi/agent/mcp-servers.json` (global) and `.pi/mcp-servers.json` (project; overrides by name).
+
+- On `session_start` and `/mcp-bridge reload`, reconcile enabled entries into `registry/<server>/meta.json`, warn about registry orphans (never delete), and auto-sync **newly added** servers only so `tools/*.json` is populated.
+- `enabled: false` skips the entry (OpenCode semantics). Disabled names still count as configured for orphan detection.
+- `/mcp-bridge add` still works; if `mcp-servers.json` already exists, it upserts an OpenCode-shaped entry into the file as well.
+- New module `mcp-servers-config.ts` + `__tests__/mcp-servers-config.test.ts` (8 tests). Tool schemas remain sync products — the JSON file is transport-only, same split as OpenCode (config) vs our registry cache (schemas for lazy CallMcpTool).
+- README (EN + zh-CN) documents the file. All tests pass; `tsc` clean.
+
 ## [0.4.3] — 2026-07-19
 
 ### Fixed — `add` now auto-syncs (eliminates the "0 tools" footgun)
