@@ -17,6 +17,8 @@ import type { ServerMeta } from "./registry/registry-types.ts";
 export interface SyncOptions {
   force?: boolean;
   env?: Record<string, string>;
+  /** Optional progress callback fired at each sync step (connect, list, write). */
+  onProgress?: (step: string) => void;
 }
 
 export interface SyncResult {
@@ -44,6 +46,7 @@ export async function doSync(
   const serverDir = join(root, serverName);
   const metaPath = join(serverDir, "meta.json");
   mkdirSync(join(serverDir, "tools"), { recursive: true });
+  const progress = options.onProgress;
 
   if (!existsSync(metaPath)) {
     if (!command) {
@@ -79,6 +82,7 @@ export async function doSync(
   // - stdio: spawn the command.
   // - http: probe StreamableHTTP first (modern MCP), fall back to SSE
   //   (legacy) — same logic as McpServerManager.
+  progress?.(`Connecting (${meta.transport.kind})…`);
   let transport;
   if (meta.transport.kind === "stdio") {
     transport = new StdioClientTransport({
@@ -109,10 +113,12 @@ export async function doSync(
 
   try {
     await client.connect(transport);
+    progress?.("Listing tools & resources…");
     const result = await syncServer(serverName, client, { force: options.force });
     if (result.skipped) {
       return { ok: true, serverName, skipped: result.skipped };
     }
+    progress?.("Writing registry files…");
     return {
       ok: true,
       serverName,
@@ -202,6 +208,8 @@ export interface ListEntry {
   description?: string;
   toolCount: number;
   tools: string[];
+  transportKind: "stdio" | "http";
+  syncedFrom?: "live-server" | "manual";
 }
 
 export function doList(): ListEntry[] {
@@ -213,6 +221,8 @@ export function doList(): ListEntry[] {
       description: server.meta.description,
       toolCount: server.tools.size,
       tools: [...server.tools.keys()],
+      transportKind: server.meta.transport.kind,
+      syncedFrom: server.meta.syncedFrom,
     });
   }
   return entries;

@@ -15,6 +15,13 @@ Three UI-layer gaps where code existed but was never invoked are now wired up, b
 - **Opt-in consent gate.** New `BridgeSettings.requireConsent` (default `false`, set in `~/.pi/agent/mcp-bridge.json`). When `true`, `CallMcpTool` blocks the first call to each server with `error: "consent_required"` and a hint pointing at `/mcp-bridge approve <server>`. New `/mcp-bridge approve <server>` and `/mcp-bridge revoke <server>` subcommands drive the `ConsentManager`. Off by default so existing behavior is unchanged.
 - New test file `__tests__/call-mcp-tool.test.ts` (3 tests) covering the consent gate's block / pass / disabled paths.
 
+### Added — Footer status bar, sync progress, themed command output
+
+- **Persistent footer status indicator** via `ctx.ui.setStatus("mcp-bridge", …)`. Shows `MCP: N servers, M tools` (correctly pluralized) in the Pi footer, refreshed on `session_start`, after `/mcp-bridge sync`, and after `/mcp-bridge reload`; cleared on `session_shutdown`. New `status-bar.ts` module centralizes the rendering (`formatStatusLine`, `refreshStatusBar`, `clearStatusBar`).
+- **Live sync progress.** `/mcp-bridge sync` now drives the footer with an animated braille spinner + step label (`Connecting (stdio)…` → `Listing tools & resources…` → `Writing registry files…`) via a new `onProgress` callback on `doSync`/`SyncOptions`. Falls back to the old single-notify behavior in non-TUI modes. The footer is restored to the summary line when sync finishes (or fails).
+- **Themed `/mcp-bridge list` and `/mcp-bridge status` output.** `list` now renders an aligned table (server | trans | tools | synced | description) with themed colors, plus an indented tool list per server. `ListEntry` gained `transportKind` and `syncedFrom` fields to populate the new columns. `status` highlights the server/tool counts. Both fall back to plain text in non-TUI modes.
+- New test file `__tests__/status-bar.test.ts` (5 tests) covering pluralization, the empty-registry hint, table rendering, and the themed status line. All 72 tests pass; `tsc` clean.
+
 ## [0.3.1] — 2026-07-19
 
 ### Added — HTTP transport support for `/mcp-bridge sync`

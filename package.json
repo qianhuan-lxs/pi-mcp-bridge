@@ -72,6 +72,7 @@
     "resource-tools.ts",
     "npx-resolver.ts",
     "tool-result-renderer.ts",
+    "status-bar.ts",
     "mcp-output-guard.ts",
     "tool-registrar.ts",
     "consent-manager.ts",

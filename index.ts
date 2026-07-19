@@ -25,6 +25,7 @@ import { toolErrorOverride } from "./error-signal.ts";
 import { logger } from "./logger.ts";
 import { doSync, doValidate, doAdd, doList } from "./registry-commands.ts";
 import { parseSyncArgs, parseAddArgs } from "./slash-parser.ts";
+import { refreshStatusBar, clearStatusBar, renderListTable, renderStatusLine, STATUS_KEY } from "./status-bar.ts";
 
 export default function mcpBridge(pi: ExtensionAPI) {
   let state: McpBridgeState | null = null;
@@ -119,6 +120,9 @@ export default function mcpBridge(pi: ExtensionAPI) {
     state = nextState;
     initPromise = Promise.resolve(nextState);
 
+    // Show the MCP registry summary in the Pi footer.
+    refreshStatusBar(nextState);
+
     // Pre-build the context block so the first `context` event is fast and
     // so we can log the registry summary. Actual injection happens in the
     // `context` event handler (see below) — there is no injectSystemContext
@@ -143,6 +147,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
     state = null;
     initPromise = null;
     injectedBlock = null;
+    clearStatusBar(current);
     try {
       await shutdownState(current, "session_shutdown");
     } catch (error) {
@@ -329,16 +334,38 @@ export default function mcpBridge(pi: ExtensionAPI) {
             notify(parsed.error, "error");
             return;
           }
-          notify(`Syncing "${parsed.serverName}" (connecting to live server)...`);
+          // Drive the footer status bar with a spinner + step label while
+          // sync runs, so the user sees live progress instead of a single
+          // "Syncing..." toast. Falls back to a notify in non-TUI modes.
+          const theme = ctx.hasUI ? (ctx.ui.theme as { fg: (n: string, t: string) => string }) : null;
+          const spinFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+          let spinIdx = 0;
+          let spinTimer: ReturnType<typeof setInterval> | null = null;
+          let currentStep = "starting…";
+          const paint = () => {
+            if (!ctx.hasUI || !theme) return;
+            const spinner = theme.fg("accent", spinFrames[spinIdx % spinFrames.length]!);
+            ctx.ui.setStatus(STATUS_KEY, `${spinner} ${theme.fg("dim", `Syncing "${parsed.serverName}": ${currentStep}`)}`);
+          };
+          if (ctx.hasUI) {
+            paint();
+            spinTimer = setInterval(() => { spinIdx++; paint(); }, 80);
+          } else {
+            notify(`Syncing "${parsed.serverName}" (connecting to live server)...`);
+          }
           const result = await doSync(parsed.serverName, parsed.command, parsed.commandArgs, {
             force: parsed.force,
             env: Object.keys(parsed.env).length > 0 ? parsed.env : undefined,
+            onProgress: (step) => { currentStep = step; paint(); },
           });
+          if (spinTimer) clearInterval(spinTimer);
           if (!result.ok) {
+            if (state) refreshStatusBar(state);
             notify(`Sync failed: ${result.error}`, "error");
             return;
           }
           if (result.skipped) {
+            if (state) refreshStatusBar(state);
             notify(`Skipped "${result.serverName}": ${result.skipped}`);
             return;
           }
@@ -350,6 +377,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
             const registry = loadRegistry();
             state.registry = registry;
             injectedBlock = null;
+            refreshStatusBar(state);
             const total = [...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
             notify(`MCP registry reloaded: ${registry.servers.size} servers, ${total} tools. Next turn will use the updated context.`);
           }
@@ -394,17 +422,22 @@ export default function mcpBridge(pi: ExtensionAPI) {
 
         case "list": {
           const entries = doList();
-          if (entries.length === 0) {
-            notify("(no servers in registry). Run /mcp-bridge add <server> -- <command> to add one.");
-            return;
+          if (ctx.hasUI) {
+            ctx.ui.notify(renderListTable(entries, ctx.ui.theme as never), "info");
+          } else {
+            // Plain-text fallback for non-TUI modes.
+            if (entries.length === 0) {
+              notify("(no servers in registry). Run /mcp-bridge add <server> -- <command> to add one.");
+              return;
+            }
+            const lines: string[] = [];
+            for (const e of entries) {
+              const desc = e.description ? ` — ${e.description}` : "";
+              lines.push(`${e.name} [${e.transportKind}] (${e.toolCount} tools, ${e.syncedFrom ?? "manual"})${desc}`);
+              for (const t of e.tools) lines.push(`  - ${t}`);
+            }
+            notify(lines.join("\n"));
           }
-          const lines: string[] = [];
-          for (const e of entries) {
-            const desc = e.description ? ` — ${e.description}` : "";
-            lines.push(`${e.name}${desc} (${e.toolCount} tools)`);
-            for (const t of e.tools) lines.push(`  - ${t}`);
-          }
-          notify(lines.join("\n"));
           return;
         }
 
@@ -419,6 +452,7 @@ export default function mcpBridge(pi: ExtensionAPI) {
           // Reset the cached injected block so the `context` event handler
           // re-builds it from the new registry on the next provider request.
           injectedBlock = null;
+          refreshStatusBar(state);
           const newCount = registry.servers.size;
           const total = [...registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
           notify(
@@ -434,8 +468,12 @@ export default function mcpBridge(pi: ExtensionAPI) {
             notify("pi-mcp-bridge not initialized", "error");
             return;
           }
-          const total = [...state.registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
-          notify(`pi-mcp-bridge: ${state.registry.servers.size} servers, ${total} tools`);
+          if (ctx.hasUI) {
+            ctx.ui.notify(renderStatusLine(state, ctx.ui.theme as never), "info");
+          } else {
+            const total = [...state.registry.servers.values()].reduce((n, s) => n + s.tools.size, 0);
+            notify(`pi-mcp-bridge: ${state.registry.servers.size} servers, ${total} tools`);
+          }
           return;
         }
 
