@@ -4,6 +4,18 @@ All notable changes to `pi-mcp-bridge` are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] — 2026-07-19
+
+### Fixed — context-block instruction wording (model wasted round-trips)
+
+Spotted in a real Pi session: with a small registry (context7, 2 tools) the model still tried to `read registry/context7/tools/<tool>.json` (a **relative** path) before calling `CallMcpTool`, hit ENOENT, then called `CallMcpTool` with missing required params, and only learned the schema from the error message. Two wasted round-trips before a successful call.
+
+Root cause: `renderWithSchemas` (the inline-schema level used for small registries) emitted `READ_FIRST_INSTRUCTION`, which led with "MANDATORY: read the tool's descriptor file" and buried the "schemas are inlined, skip the read" caveat in parentheses. The model latched onto "MANDATORY read", tried a relative path, and failed.
+
+- **Split the instruction into two variants.** `INSTRUCTION_INLINE` (used by `renderWithSchemas`): "Full input schemas are inlined below each tool. Call CallMcpTool / FetchMcpResource directly with the arguments shown — do NOT read schema files first." `INSTRUCTION_READ_FILES` (used by `renderFull` and `renderKeysOnly`): "Read the tool's descriptor file to confirm its parameters. Each server's descriptor folder (absolute path) is shown under its name above — use `read <folder>/tools/<toolName>.json`. Do NOT use relative paths like `registry/<server>/...`; they resolve against the agent cwd and will miss the registry."
+- The files-level instruction now **explicitly warns against relative paths** and points at the absolute `folder:` path already rendered under each server header.
+- Updated `__tests__/context-injector.test.ts`: the old "includes the MANDATORY read-schema-first instruction" test (which asserted the inline level said MANDATORY) is replaced by two tests — one asserting the inline level says "do NOT read schema files", one asserting the files level (31-tool registry, over the limit) says "read the descriptor file" + "Do NOT use relative paths" + includes the absolute folder path. All 73 tests pass; `tsc` clean.
+
 ## [0.4.0] — 2026-07-19
 
 ### Added — Wrapper tool rendering, UI session wiring, consent gate

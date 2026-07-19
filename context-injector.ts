@@ -26,8 +26,16 @@ import type { Registry } from "./registry/registry-types.ts";
 import type { BridgeSettings } from "./types.ts";
 
 const HEADER = "## MCP servers (via pi-mcp-bridge)";
-const READ_FIRST_INSTRUCTION =
-  "MANDATORY: Before calling any tool with CallMcpTool, list and read the tool's descriptor file at `<server-folder>/tools/<toolName>.json` to confirm its parameters. This is NOT optional — calling with wrong parameters will fail. (When full input schemas are listed inline below, you may call directly without re-reading.)";
+// Used when full inputSchemas are inlined below each tool. Tells the model
+// to call directly and NOT waste a round-trip reading schema files.
+const INSTRUCTION_INLINE =
+  "Full input schemas are inlined below each tool. Call CallMcpTool / FetchMcpResource directly with the arguments shown — do NOT read schema files first.";
+// Used when schemas are NOT inlined (registry over the tool-count limit, or
+// the block was truncated). Tells the model to read the descriptor file with
+// an ABSOLUTE path and explicitly warns against relative paths (which resolve
+// against the agent cwd and miss the real registry location).
+const INSTRUCTION_READ_FILES =
+  "Before calling CallMcpTool, read the tool's descriptor file to confirm its parameters. Each server's descriptor folder (absolute path) is shown under its name above — use `read <folder>/tools/<toolName>.json`. Do NOT use relative paths like `registry/<server>/...`; they resolve against the agent cwd and will miss the registry.";
 const FOOTER_WITH_SCHEMAS =
   "Full input schemas are included above. Call CallMcpTool / FetchMcpResource directly with the arguments shown.";
 const FOOTER_READ_FILES = (root: string) =>
@@ -109,7 +117,7 @@ function renderWithSchemas(registry: Registry): string {
   const totalTools = [...registry.servers.values()].reduce((sum, s) => sum + s.tools.size, 0);
   const summary = `${registry.servers.size} servers, ${totalTools} tools — full input schemas included; call CallMcpTool / FetchMcpResource directly.`;
 
-  const lines: string[] = [HEADER, summary, READ_FIRST_INSTRUCTION];
+  const lines: string[] = [HEADER, summary, INSTRUCTION_INLINE];
 
   for (const server of registry.servers.values()) {
     lines.push(renderServerHeader(server, TINY_DESCRIPTION_CHARS));
@@ -135,7 +143,7 @@ function renderFull(registry: Registry, maxDescChars: number, root: string): str
   const totalTools = [...registry.servers.values()].reduce((sum, s) => sum + s.tools.size, 0);
   const summary = `${registry.servers.size} servers, ${totalTools} tools — use CallMcpTool / FetchMcpResource to invoke; read \`${root}/<server>/tools/<tool>.json\` for full schemas.`;
 
-  const lines: string[] = [HEADER, summary, READ_FIRST_INSTRUCTION];
+  const lines: string[] = [HEADER, summary, INSTRUCTION_READ_FILES];
 
   for (const server of registry.servers.values()) {
     lines.push(renderServerHeader(server, maxDescChars));
@@ -159,7 +167,7 @@ function renderKeysOnly(registry: Registry, root: string): string {
   const totalTools = [...registry.servers.values()].reduce((sum, s) => sum + s.tools.size, 0);
   const summary = `${registry.servers.size} servers, ${totalTools} tools — use CallMcpTool / FetchMcpResource to invoke; read \`${root}/<server>/tools/<tool>.json\` for full schemas.`;
 
-  const lines: string[] = [HEADER, summary, READ_FIRST_INSTRUCTION];
+  const lines: string[] = [HEADER, summary, INSTRUCTION_READ_FILES];
 
   for (const server of registry.servers.values()) {
     lines.push(renderServerHeader(server, TINY_DESCRIPTION_CHARS));

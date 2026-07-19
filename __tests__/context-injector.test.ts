@@ -245,13 +245,30 @@ describe("buildContextBlock", () => {
     expect(result.block).toContain(reg.servers.get("context7")!.directory);
   });
 
-  it("includes the MANDATORY read-schema-first instruction", () => {
+  it("tells the model to call directly (NOT read files) when schemas are inlined", () => {
     const reg = makeRegistry([
       { name: "fs", tools: [{ name: "read_file", description: "Read a file." }] },
     ]);
     const result = buildContextBlock(reg, { contextBudgetTokens: 100000 });
-    expect(result.block).toContain("MANDATORY");
-    expect(result.block).toContain("read");
-    expect(result.block).toContain("NOT optional");
+    // Small registry → schemas inlined → model should call directly.
+    expect(result.schemasIncluded).toBe(true);
+    expect(result.block).toContain("inlined");
+    expect(result.block).toContain("do NOT read schema files");
+  });
+
+  it("tells the model to read descriptor files with absolute paths when schemas are NOT inlined", () => {
+    // Over the 30-tool inline limit → falls to renderFull → files instruction.
+    const tools = Array.from({ length: 31 }, (_, i) => ({
+      name: `tool_${i}`,
+      description: `tool ${i}`,
+    }));
+    const reg = makeRegistry([{ name: "big", tools }]);
+    const result = buildContextBlock(reg, { contextBudgetTokens: 100000 });
+    expect(result.schemasIncluded).toBe(false);
+    expect(result.block).toContain("read the tool's descriptor file");
+    // Must warn against relative paths (the transcript bug).
+    expect(result.block).toContain("Do NOT use relative paths");
+    // Must include the absolute folder path so the model can read it.
+    expect(result.block).toContain(reg.servers.get("big")!.directory);
   });
 });
